@@ -2,10 +2,8 @@ import {
   NoColorSpace,
   FrontSide,
   Material,
-  MeshDepthMaterial,
   MeshStandardMaterial,
   NearestFilter,
-  RGBADepthPacking,
   SRGBColorSpace,
   type Side,
   Texture,
@@ -93,20 +91,6 @@ export function createTerrainStandardMaterial(
   });
   material.onBeforeCompile = (shader) => applyTerrainDisplacementShader(shader, uniforms);
   material.customProgramCacheKey = () => "terrain-bicubic-height-emissive-v1";
-  return material;
-}
-
-export function createTerrainDepthMaterial(
-  colorMap: Texture,
-  uniforms: TerrainClipShaderUniforms,
-): MeshDepthMaterial {
-  const material = new MeshDepthMaterial({
-    depthPacking: RGBADepthPacking,
-    map: colorMap,
-    alphaTest: 0.01,
-  });
-  material.onBeforeCompile = (shader) => applyTerrainDepthShader(shader, uniforms);
-  material.customProgramCacheKey = () => "terrain-depth-displacement-v1";
   return material;
 }
 
@@ -337,14 +321,6 @@ export function applyTerrainDisplacementShader(
     `#include <emissivemap_fragment>
      totalEmissiveRadiance = terrainHeightPaletteEmissive(vTerrainHeightMeters);`,
   );
-}
-
-export function applyTerrainDepthShader(
-  shader: TerrainShader,
-  uniforms: TerrainClipShaderUniforms,
-): void {
-  applyTerrainHeightVertexShader(shader, uniforms, false);
-  applyTerrainClipMaskFragmentShader(shader, uniforms, "#include <alphatest_fragment>");
 }
 
 export function applyTerrainLineHeightShader(

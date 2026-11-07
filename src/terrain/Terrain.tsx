@@ -23,7 +23,6 @@ import {
   type TerrainClipPolygonIndex,
 } from "./terrainClipIndex";
 import {
-  createTerrainDepthMaterial,
   createTerrainShaderUniforms,
   createTerrainStandardMaterial,
   getTerrainHeightTexture,
@@ -100,7 +99,6 @@ function TerrainTile({
   terrainEmissiveColor,
   terrainGradientLowColor,
   terrainGradientHighColor,
-  onTerrainChange,
   clipPolygons,
   clipIndex,
 }: {
@@ -112,7 +110,6 @@ function TerrainTile({
   terrainEmissiveColor: string;
   terrainGradientLowColor: string;
   terrainGradientHighColor: string;
-  onTerrainChange: () => void;
   clipPolygons: Position[][][];
   clipIndex: TerrainClipPolygonIndex;
 }) {
@@ -228,15 +225,6 @@ function TerrainTile({
     ),
     [skirtUniforms, texture],
   );
-  const terrainDepthMaterial = useMemo(
-    () => createTerrainDepthMaterial(texture, terrainUniforms),
-    [terrainUniforms, texture],
-  );
-  const skirtDepthMaterial = useMemo(
-    () => createTerrainDepthMaterial(texture, skirtUniforms),
-    [skirtUniforms, texture],
-  );
-
   useEffect(() => {
     retainTerrainTexture(image);
     return () => releaseTerrainTexture(image, texture);
@@ -251,30 +239,19 @@ function TerrainTile({
   useEffect(() => () => skirtGeometry.dispose(), [skirtGeometry]);
   useEffect(() => () => terrainMaterial.dispose(), [terrainMaterial]);
   useEffect(() => () => skirtMaterial.dispose(), [skirtMaterial]);
-  useEffect(() => () => terrainDepthMaterial.dispose(), [terrainDepthMaterial]);
-  useEffect(() => () => skirtDepthMaterial.dispose(), [skirtDepthMaterial]);
-  useEffect(() => {
-    onTerrainChange();
-  }, [geometry, onTerrainChange, skirtGeometry]);
 
   return (
     <group position={[position[0], 0, position[1]]}>
       <mesh
         geometry={geometry}
         material={terrainMaterial}
-        customDepthMaterial={terrainDepthMaterial}
         renderOrder={1}
-        castShadow
-        receiveShadow
         frustumCulled={false}
       />
       {skirtGeometry.getAttribute("position").count > 0 && (
         <mesh
           geometry={skirtGeometry}
           material={skirtMaterial}
-          customDepthMaterial={skirtDepthMaterial}
-          castShadow
-          receiveShadow
           frustumCulled={false}
         />
       )}
@@ -289,7 +266,6 @@ export function TerrainTiles({
   terrainEmissiveColor,
   terrainGradientLowColor,
   terrainGradientHighColor,
-  onTerrainChange,
   clipPolygons,
   tiles,
 }: {
@@ -299,7 +275,6 @@ export function TerrainTiles({
   terrainEmissiveColor: string;
   terrainGradientLowColor: string;
   terrainGradientHighColor: string;
-  onTerrainChange: () => void;
   clipPolygons: Position[][][];
   tiles: { z: number; x: number; y: number }[];
 }) {
@@ -324,7 +299,6 @@ export function TerrainTiles({
             terrainEmissiveColor={terrainEmissiveColor}
             terrainGradientLowColor={terrainGradientLowColor}
             terrainGradientHighColor={terrainGradientHighColor}
-            onTerrainChange={onTerrainChange}
             clipPolygons={clipPolygons}
             clipIndex={clipIndex}
             texture={texture}

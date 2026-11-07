@@ -141,19 +141,8 @@ export function TerrainScene({
   imageExportPreview: boolean;
   exportBounds: TerrainExportBoundingBox[];
 }) {
-  const { gl, invalidate } = useThree();
-  const shadowUpdateTimerRef = useRef<number | null>(null);
+  const { invalidate } = useThree();
   const previousTilesRef = useRef<Tile[]>([]);
-  const markShadowsDirty = useCallback(() => {
-    if (shadowUpdateTimerRef.current !== null) {
-      window.clearTimeout(shadowUpdateTimerRef.current);
-    }
-    shadowUpdateTimerRef.current = window.setTimeout(() => {
-      shadowUpdateTimerRef.current = null;
-      gl.shadowMap.needsUpdate = true;
-      invalidate();
-    }, 180);
-  }, [gl, invalidate]);
   const candidateTiles = useMemo(
     () => selectTerrainTiles(view, data.metadata, previousTilesRef.current),
     [data.metadata, view],
@@ -378,22 +367,6 @@ export function TerrainScene({
   }, [tiles]);
 
   useEffect(() => {
-    gl.shadowMap.autoUpdate = false;
-    gl.shadowMap.needsUpdate = true;
-    invalidate();
-    return () => {
-      if (shadowUpdateTimerRef.current !== null) {
-        window.clearTimeout(shadowUpdateTimerRef.current);
-        shadowUpdateTimerRef.current = null;
-      }
-    };
-  }, [gl, invalidate]);
-
-  useEffect(() => {
-    markShadowsDirty();
-  }, [markShadowsDirty, settings.exaggeration, settings.sunAzimuth, settings.sunElevation]);
-
-  useEffect(() => {
     invalidate();
   }, [
     invalidate,
@@ -412,7 +385,6 @@ export function TerrainScene({
       <color attach="background" args={["#111a19"]} />
       <ambientLight intensity={settings.ambientLightIntensity} />
       <directionalLight
-        castShadow
         position={[
           Math.sin(azimuth) * Math.cos(elevation) * sunDistance,
           Math.sin(elevation) * sunDistance,
@@ -420,17 +392,6 @@ export function TerrainScene({
         ]}
         color={settings.lightColor}
         intensity={1.1}
-        shadow-bias={-0.0001}
-        shadow-camera-bottom={-1_600}
-        shadow-camera-far={5_000}
-        shadow-camera-left={-1_600}
-        shadow-camera-near={0.1}
-        shadow-camera-right={1_600}
-        shadow-camera-top={1_600}
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-normalBias={0.03}
-        shadow-radius={6}
       />
       <group visible={terrainVisible || imageExportPreview}>
         <Suspense fallback={null}>
@@ -441,7 +402,6 @@ export function TerrainScene({
             terrainEmissiveColor={settings.terrainEmissiveColor}
             terrainGradientLowColor={settings.terrainGradientLowColor}
             terrainGradientHighColor={settings.terrainGradientHighColor}
-            onTerrainChange={markShadowsDirty}
             clipPolygons={terrainClipPolygons}
             tiles={deferredTiles}
           />

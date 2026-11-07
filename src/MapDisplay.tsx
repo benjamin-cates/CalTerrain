@@ -107,11 +107,7 @@ export function MapDisplay(props: Props) {
         onContextMenu={(event) => event.preventDefault()} onWheel={props.onWheel}>
         {dataset ? (
           <Canvas camera={{ position: [0, 1_200, 1_850], fov: 40, near: 0.1, far: 20_000 }}
-            dpr={[1, 1.75]} frameloop="demand" gl={{ antialias: true, alpha: false }}
-            onCreated={({ gl }) => {
-              gl.shadowMap.autoUpdate = false;
-              gl.shadowMap.needsUpdate = true;
-            }} shadows="soft">
+            dpr={[1, 1.75]} frameloop="demand" gl={{ antialias: true, alpha: false }}>
             <TerrainScene
               data={dataset}
               highwayFeatures={highwayFeatures}
