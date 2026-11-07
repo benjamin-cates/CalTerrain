@@ -1,0 +1,33 @@
+{
+  "name": "bun-react-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "process:terrain": "python3 src/scripts/process_terrain.py && bun run generate:grid",
+    "generate:grid": "bun src/scripts/generate_longitude_latitude_grid.ts",
+    "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
+    "start": "NODE_ENV=production bun src/index.ts"
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.8.2",
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "@turf/helpers": "^7.4.0",
+    "draco3d": "^1.5.9",
+    "polygon-clipping": "^0.15.7",
+    "react": "^19",
+    "react-dom": "^19",
+    "shpjs": "^6.2.0",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/three": "^0.186.0"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}
