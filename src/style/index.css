@@ -1163,8 +1163,8 @@ h1 em {
 .region-list-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) repeat(4, 30px);
-  gap: 1px;
-  padding: 0 3px 3px;
+  gap: 3px;
+  padding: 0 9px 3px;
   margin: 0;
   color: #ffffff;
   font-family: var(--mono);
@@ -1407,11 +1407,39 @@ h1 em {
 }
 
 .more-popup-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(224, 225, 209, 0.08);
+}
+
+.more-popup-action-category {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.more-popup-action-icon {
+  display: flex;
+  width: 20px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: #aeb8ad;
+}
+
+.more-popup-action-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.more-popup-action-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .more-popup-actions button {
@@ -1460,13 +1488,6 @@ h1 em {
   margin: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-.more-popup-shape-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  width: 100%;
 }
 
 .more-popup-analysis-status {
@@ -1771,7 +1792,8 @@ h1 em {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px 3px 3px;
+  padding: 0 10px 3px 3px;
+  gap: -1px;
   color: #ffffff;
   font-family: var(--mono);
   font-size: 8px;

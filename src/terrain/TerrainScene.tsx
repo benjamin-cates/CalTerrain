@@ -10,6 +10,7 @@ import {
   type HighwayFeatureCollection,
 } from "../highways";
 import type { MountainPeak } from "../mountains";
+import type { RailwayFeatureCollection } from "../railways";
 import type { TerrainExportBoundingBox } from "./terrainExport";
 import type { TerrainRaycast } from "./terrainRaycast";
 import {
@@ -97,6 +98,7 @@ function CameraRig({
 export function TerrainScene({
   data,
   highwayFeatures,
+  railwayFeatures,
   nationalParks,
   nationalForests,
   longitudeLatitudeLines,
@@ -120,6 +122,7 @@ export function TerrainScene({
 }: {
   data: Dataset;
   highwayFeatures: HighwayFeatureCollection | null;
+  railwayFeatures: RailwayFeatureCollection | null;
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
@@ -174,6 +177,10 @@ export function TerrainScene({
   const selectedInterstateNumbers = useMemo(
     () => new Set(topographicSelections.interstates),
     [topographicSelections.interstates],
+  );
+  const selectedRailwayNames = useMemo(
+    () => new Set(topographicSelections.railways),
+    [topographicSelections.railways],
   );
   const selectedRouteIds = useMemo(
     () => new Set([
@@ -324,7 +331,28 @@ export function TerrainScene({
       : [],
     [data.metadata.center, highwayFeatures, selectedInterstateNumbers],
   );
+  const railwayLineLayers = useMemo<TerrainLineLayer[]>(() => {
+    if (!railwayFeatures || selectedRailwayNames.size === 0) return [];
+    const lines = railwayFeatures.features
+      .filter((feature) => selectedRailwayNames.has(feature.properties.name))
+      .flatMap((feature) =>
+        feature.geometry.type === "LineString"
+          ? [feature.geometry.coordinates]
+          : feature.geometry.coordinates
+      )
+      .map((line) => line.map((position) => toLocal(position, data.metadata.center)));
+    return lines.length > 0
+      ? [{
+          id: "railways",
+          lines,
+          color: "#d3a94a",
+          lineWidth: 2,
+          opacity: 0.9,
+        }]
+      : [];
+  }, [data.metadata.center, railwayFeatures, selectedRailwayNames]);
   const routeLines = useMemo<TerrainLineLayer[]>(() => [
+    ...railwayLineLayers,
     ...(selectedHighwayNumbers.size > 0
       ? [{
           id: "california-highways",
@@ -343,7 +371,13 @@ export function TerrainScene({
           opacity: 0.95,
         }]
       : []),
-  ], [highwayLines, interstateLines, selectedHighwayNumbers, selectedInterstateNumbers]);
+  ], [
+    highwayLines,
+    interstateLines,
+    railwayLineLayers,
+    selectedHighwayNumbers,
+    selectedInterstateNumbers,
+  ]);
   const exportBoxLines = useMemo<TerrainLineLayer[]>(() => exportBounds.map((box) => ({
     id: `export-bounds-${box.id}`,
     lines: [box.outline],

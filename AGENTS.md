@@ -10,8 +10,15 @@
   and PNG/GLB export logic. Reuse shared terrain and geometry helpers rather
   than duplicating their calculations.
 - `src/scripts/` generates the county-derived California boundary, terrain
-  tiles, and latitude/longitude grid. Generated browser data lives in
-  `public/data`; source rasters live in `data_sources`.
+  tiles, latitude/longitude grid, BART service-route GeoJSON, and unified
+  California passenger rail routes. Generated browser data lives in
+  `public/data`; source datasets live in `data_sources`.
+- Regenerate the unified passenger rail routes with
+  `python3 src/scripts/generate_california_rail_routes.py`; it updates both
+  `public/data/features/california_rail_routes.geojson` and its shapefile ZIP.
+  The checked-in MTS and SMART sources are
+  `data_sources/mts_trolley_routes.geojson` and `data_sources/SMART.geojson`.
+  SACRT input and shapefile ZIP generation require GDAL's `ogr2ogr` command.
 
 ## Coordinate and terrain conventions
 

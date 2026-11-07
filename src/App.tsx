@@ -46,6 +46,8 @@ import { useTerrainData } from "./terrain/useTerrainData";
 import { useBoundaryFeatureData } from "./terrain/useBoundaryFeatureData";
 import { getHighwayRouteLines, getHighwayRouteNumbers } from "./highways";
 import { useHighwayData } from "./terrain/useHighwayData";
+import { getRailwayFeatureOptions } from "./railways";
+import { useRailwayData } from "./terrain/useRailwayData";
 import { useMountainData } from "./terrain/useMountainData";
 import { useCustomMountainPeaks } from "./terrain/useCustomMountainPeaks";
 import {
@@ -237,12 +239,17 @@ export function App() {
   const [selectedImageRegionId, setSelectedImageRegionId] = useState<string | null>(null);
   const [heightPalette, setHeightPalette] = useState<TerrainHeightPalette>("grayscale");
   const [highwayDataRequested, setHighwayDataRequested] = useState(false);
+  const [railwayDataRequested, setRailwayDataRequested] = useState(false);
   const [mountainDataRequested, setMountainDataRequested] = useState(false);
   const { features: highwayFeatures, loading: highwayLoading, error: highwayError } =
     useHighwayData(
       highwayDataRequested ||
       topographicSelections.highways.length > 0 ||
       topographicSelections.interstates.length > 0,
+    );
+  const { features: railwayFeatures, loading: railwayLoading, error: railwayError } =
+    useRailwayData(
+      railwayDataRequested || topographicSelections.railways.length > 0,
     );
   const { peaks, loading: mountainLoading, error: mountainError } =
     useMountainData(mountainDataRequested || topographicSelections.peaks.length > 0);
@@ -303,6 +310,7 @@ export function App() {
         label: String(feature.properties.name ?? ""),
         geometry: feature.geometry,
       })),
+      railways: railwayFeatures ? getRailwayFeatureOptions(railwayFeatures) : [],
     };
   }, [
     allMountainPeaks,
@@ -311,6 +319,7 @@ export function App() {
     longitudeLatitudeGrid,
     nationalForestData.options,
     nationalParkData.options,
+    railwayFeatures,
     settings.measurementSystem,
   ]);
   const topographicStatus = useMemo(() => ({
@@ -321,6 +330,7 @@ export function App() {
     nationalParks: { loading: nationalParkData.loading, error: nationalParkData.error },
     nationalForests: { loading: nationalForestData.loading, error: nationalForestData.error },
     longitudeLatitudeLines: { loading: !dataset, error: dataError },
+    railways: { loading: railwayLoading, error: railwayError },
   }), [
     countiesError,
     countiesLoading,
@@ -334,6 +344,8 @@ export function App() {
     nationalForestData.loading,
     nationalParkData.error,
     nationalParkData.loading,
+    railwayError,
+    railwayLoading,
   ]);
   const [regions, setRegions] = useState<Region[]>([]);
   const displayRegions = useMemo(
@@ -525,6 +537,8 @@ export function App() {
       void nationalParkData.load();
     } else if (category === "nationalForests") {
       void nationalForestData.load();
+    } else if (category === "railways") {
+      setRailwayDataRequested(true);
     }
   }, [loadCounties, nationalForestData.load, nationalParkData.load]);
   const toggleTopographicFeature = useCallback((
@@ -1499,6 +1513,7 @@ export function App() {
           <MapDisplay dataset={dataset} dataError={dataError} terrainVisible={terrainVisible}
             welcomeOpen={welcomeOpen} onDismissWelcome={dismissWelcome}
             highwayFeatures={highwayFeatures}
+            railwayFeatures={railwayFeatures}
             nationalParks={nationalParkData.features}
             nationalForests={nationalForestData.features}
             longitudeLatitudeLines={longitudeLatitudeGrid}

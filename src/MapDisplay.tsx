@@ -10,6 +10,7 @@ import type { Camera } from "three";
 import { TerrainScene } from "./terrain/TerrainScene";
 import type { RegionHandle } from "./regions";
 import type { HighwayFeatureCollection } from "./highways";
+import type { RailwayFeatureCollection } from "./railways";
 import type { MountainPeak } from "./mountains";
 import type { TerrainExportBoundingBox } from "./terrain/terrainExport";
 import type { TerrainRaycast } from "./terrain/terrainRaycast";
@@ -29,6 +30,7 @@ import { formatDistance } from "./units";
 type Props = {
   dataset: Dataset | null;
   highwayFeatures: HighwayFeatureCollection | null;
+  railwayFeatures: RailwayFeatureCollection | null;
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
@@ -74,6 +76,7 @@ export function MapDisplay(props: Props) {
     regions,
     selectedRegionId,
     highwayFeatures,
+    railwayFeatures,
     nationalParks,
     nationalForests,
     longitudeLatitudeLines,
@@ -111,6 +114,7 @@ export function MapDisplay(props: Props) {
             <TerrainScene
               data={dataset}
               highwayFeatures={highwayFeatures}
+              railwayFeatures={railwayFeatures}
               nationalParks={nationalParks}
               nationalForests={nationalForests}
               longitudeLatitudeLines={longitudeLatitudeLines}

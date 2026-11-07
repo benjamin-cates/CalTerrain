@@ -6,12 +6,20 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
 
 [Open CalTerrain](https://calterrain.thebenjicat.dev)
 
+## Railway data sources
+
+- [SD MTS](https://www.arcgis.com/home/item.html?id=1ab4e13ae5804f678e8863e36d3929e7#overview)
+- [Most trains](https://gisdata-caltrans.opendata.arcgis.com/datasets/2ac93358aca84aa7b547b29a42d5ff52_0/about)
+- [BART](https://www.bart.gov/schedules/developers/geo)
+- [Sacramento light rail](https://www.sacrt.com/transit-data-portal/)
+- [LA Metro lines](https://www.arcgis.com/home/item.html?id=c738efee27cc40c5804adde7119175c8#overview)
+
 ## Features
 
 - **Explore terrain:** pan, rotate, and zoom around California; adjust vertical
   exaggeration, terrain palette, and lighting. Terrain data is streamed to keep high quality views with low memory usage.
 - **View mapped features:** enable highways and interstates, mountain peaks,
-  counties, and national parks and forests.
+  railways, counties, and national parks and forests.
 - **Create custom shapes:** add points, circles, rectangles, polygons, and
   polylines. Intersect, union, and subtract areas to create custom shapes.
 - **Analyze and edit regions:** inspect area, perimeter, and line length; sample high and low terrain points; create elevation

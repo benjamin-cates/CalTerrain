@@ -195,6 +195,7 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
     case "nationalParks": return "National park";
     case "nationalForests": return "National forest";
     case "longitudeLatitudeLines": return "Latitude/longitude cell";
+    case "railways": return "Railway route";
   }
 }
 
@@ -209,6 +210,7 @@ const MANMADE_CATEGORIES: FeatureCategoryButton[] = [
   { id: "nationalParks", label: "National parks" },
   { id: "highways", label: "Highways" },
   { id: "interstates", label: "Interstates" },
+  { id: "railways", label: "Railways" },
 ];
 
 const HEIGHT_PALETTES: {
@@ -448,9 +450,48 @@ function ShapePointsEditor({ region, onUpdate }: {
   );
 }
 
+type MoreActionCategoryName = "convert" | "analysis" | "view" | "edit";
+
+function MoreActionCategory({
+  category,
+  children,
+}: {
+  category: MoreActionCategoryName;
+  children: ReactNode;
+}) {
+  return (
+    <div className="more-popup-action-category" role="group" aria-label={`${category} actions`}>
+      <span className="more-popup-action-icon" aria-hidden="true">
+        <svg viewBox="0 0 20 20" fill="none">
+          {category === "convert" && (
+            <path d="M3 6h12l-3-3m3 3-3 3M17 14H5l3 3m-3-3 3-3"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          {category === "analysis" && (
+            <path d="M3 3v14h14M6 13l3-4 3 2 4-6"
+              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          {category === "view" && (
+            <>
+              <path d="M1.8 10s3-5 8.2-5 8.2 5 8.2 5-3 5-8.2 5-8.2-5-8.2-5Z"
+                stroke="currentColor" strokeWidth="1.4" />
+              <circle cx="10" cy="10" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+            </>
+          )}
+          {category === "edit" && (
+            <path d="m3 14.5-.7 3.2 3.2-.7L16.8 5.7a1.8 1.8 0 0 0-2.5-2.5L3 14.5Zm9.9-9.9 2.5 2.5"
+              stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+        </svg>
+      </span>
+      <div className="more-popup-action-list">{children}</div>
+    </div>
+  );
+}
+
 function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMeters,
   conversionHelp, areaSquareMeters, lengthMeters, prominenceMeters, isolationKm, measurementSystem,
-  popupRef, style, onClose, onConvert, onFocus, showDetails, extraActions, children, onBack }: {
+  popupRef, style, onClose, onConvert, onFocus, showDetails, analysisActions, editActions, children, onBack }: {
   name: string;
   type: string;
   convertLabel?: string;
@@ -468,7 +509,8 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
   onConvert?: () => void;
   onFocus: () => void;
   showDetails: boolean;
-  extraActions?: ReactNode;
+  analysisActions?: ReactNode;
+  editActions?: ReactNode;
   children?: ReactNode;
   onBack?: () => void;
 }) {
@@ -489,15 +531,22 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
         <>
           <div className="more-popup-actions">
             {convertLabel && onConvert && (
-              <div className="more-popup-convert">
-                <button type="button" disabled={conversionDisabled} onClick={onConvert}>
-                  {convertLabel}
-                </button>
-                {conversionDisabled && conversionHelp && <small>{conversionHelp}</small>}
-              </div>
+              <MoreActionCategory category="convert">
+                <div className="more-popup-convert">
+                  <button type="button" disabled={conversionDisabled} onClick={onConvert}>
+                    {convertLabel}
+                  </button>
+                  {conversionDisabled && conversionHelp && <small>{conversionHelp}</small>}
+                </div>
+              </MoreActionCategory>
             )}
-            <button type="button" onClick={onFocus}>Move into focus</button>
-            {extraActions}
+            {analysisActions && (
+              <MoreActionCategory category="analysis">{analysisActions}</MoreActionCategory>
+            )}
+            <MoreActionCategory category="view">
+              <button type="button" onClick={onFocus}>Move into focus</button>
+            </MoreActionCategory>
+            {editActions && <MoreActionCategory category="edit">{editActions}</MoreActionCategory>}
           </div>
           <dl className="more-popup-measurements">
             {perimeterMeters !== undefined && (
@@ -1477,7 +1526,6 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               <button type="button" disabled={pointsTransferBusy}
                 onClick={() => void pasteShapePoints()}>Paste points</button>
             </div>
-            <small>Latitude,longitude pairs, one point per line.</small>
             {pointsTransferFeedback?.regionId === pointsEditorRegion.id && (
               <small
                 className={`shape-points-feedback${pointsTransferFeedback.error ? " is-error" : ""}`}
@@ -1662,57 +1710,57 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             maxHeight: `calc(100dvh - ${morePosition.top}px - 16px)`,
           }}
           showDetails={morePage === null}
-          extraActions={(
-            <>
-              {(hasPolygonGeometry || moreLineGeometries.length > 0) && (
-                <div className="more-popup-shape-actions">
-                  <button
-                    type="button"
-                    disabled={extremumLoading !== null}
-                    onClick={() => void createElevationPoint("highest")}
-                  >
-                    {extremumLoading === "highest" ? "Finding highest…" : "Find highest point"}
+          analysisActions={
+            (hasPolygonGeometry || moreLineGeometries.length > 0) ? (
+              <>
+                <button
+                  type="button"
+                  disabled={extremumLoading !== null}
+                  onClick={() => void createElevationPoint("highest")}
+                >
+                  {extremumLoading === "highest" ? "Finding highest…" : "Find highest point"}
+                </button>
+                <button
+                  type="button"
+                  disabled={extremumLoading !== null}
+                  onClick={() => void createElevationPoint("lowest")}
+                >
+                  {extremumLoading === "lowest" ? "Finding lowest…" : "Find lowest point"}
+                </button>
+                {moreLineGeometries.length > 0 && (
+                  <button type="button" onClick={() => void openElevationProfile()}>
+                    Elevation profile
                   </button>
-                  <button
-                    type="button"
-                    disabled={extremumLoading !== null}
-                    onClick={() => void createElevationPoint("lowest")}
-                  >
-                    {extremumLoading === "lowest" ? "Finding lowest…" : "Find lowest point"}
-                  </button>
-                  {moreLineGeometries.length > 0 && (
-                    <button type="button" onClick={() => void openElevationProfile()}>
-                      Elevation profile
-                    </button>
-                  )}
-                  {extremumLoading && (
-                    <small className="more-popup-analysis-status" role="status">
-                      Sampling terrain elevations…
-                    </small>
-                  )}
-                  {moreActionError && morePage === null && (
-                    <small className="more-popup-error" role="alert">{moreActionError}</small>
-                  )}
-                </div>
-              )}
-              {moreRegion?.type === "polyline" ? (
-                <div className="more-popup-shape-actions">
-                  <button type="button" onClick={() => openMorePage("trim")}>Trim start/end</button>
-                  <button type="button" onClick={() => openMorePage("connect")}>Connect polylines</button>
-                </div>
-              ) : moreRegion && (
-                moreRegion.type === "polygon" ||
-                moreRegion.type === "ellipse" ||
-                moreRegion.type === "rectangle"
-              ) ? (
-                <div className="more-popup-shape-actions">
-                  <button type="button" onClick={() => openMorePage("union")}>Union</button>
-                  <button type="button" onClick={() => openMorePage("intersection")}>Intersect</button>
-                  <button type="button" onClick={() => openMorePage("difference")}>Difference</button>
-                </div>
-              ) : undefined}
-            </>
-          )}
+                )}
+                {extremumLoading && (
+                  <small className="more-popup-analysis-status" role="status">
+                    Sampling terrain elevations…
+                  </small>
+                )}
+                {moreActionError && morePage === null && (
+                  <small className="more-popup-error" role="alert">{moreActionError}</small>
+                )}
+              </>
+            ) : undefined
+          }
+          editActions={
+            moreRegion?.type === "polyline" ? (
+              <>
+                <button type="button" onClick={() => openMorePage("trim")}>Trim start/end</button>
+                <button type="button" onClick={() => openMorePage("connect")}>Connect polylines</button>
+              </>
+            ) : moreRegion && (
+              moreRegion.type === "polygon" ||
+              moreRegion.type === "ellipse" ||
+              moreRegion.type === "rectangle"
+            ) ? (
+              <>
+                <button type="button" onClick={() => openMorePage("union")}>Union</button>
+                <button type="button" onClick={() => openMorePage("intersection")}>Intersect</button>
+                <button type="button" onClick={() => openMorePage("difference")}>Difference</button>
+              </>
+            ) : undefined
+          }
           onBack={morePage ? () => {
             setMorePage(null);
             setMoreActionError(null);

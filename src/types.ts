@@ -37,7 +37,8 @@ export type TopographicFeatureCategory =
   | "peaks"
   | "nationalParks"
   | "nationalForests"
-  | "longitudeLatitudeLines";
+  | "longitudeLatitudeLines"
+  | "railways";
 export type TopographicFeatureSelections = Record<TopographicFeatureCategory, string[]>;
 export type ClipFeatureCategory =
   | "counties"
@@ -65,6 +66,7 @@ export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelection
   nationalParks: [],
   nationalForests: [],
   longitudeLatitudeLines: [],
+  railways: [],
 };
 
 export const INITIAL_CLIP_FEATURE_SELECTIONS: ClipFeatureSelections = {
