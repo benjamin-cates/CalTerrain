@@ -3,7 +3,9 @@ import { fromLocal, toLocal } from "./geo";
 import {
   combineCustomRegions,
   connectPolylines,
+  positionAtLineDistance,
   polylineLengthMeters,
+  shiftPolygonStart,
   trimPolyline,
 } from "./customRegionOperations";
 import type { Position, Region } from "./types";
@@ -47,6 +49,29 @@ describe("custom region operations", () => {
     expect(() => trimPolyline(points, 500, 500, CENTER)).toThrow(
       "Trimming must leave at least 10 cm of line.",
     );
+  });
+
+  it("finds the geographic position at a distance across multiple line pieces", () => {
+    const first = [local(0, 0), local(1, 0)];
+    const second = [local(2, 0), local(3, 0)];
+    const firstLength = polylineLengthMeters(first);
+    const sample = localPoints([positionAtLineDistance(
+      [first, second],
+      firstLength + 250,
+      CENTER,
+    )]);
+
+    expect(sample[0]?.[0]).toBeCloseTo(2 + 250 / polylineLengthMeters(second), 4);
+    expect(sample[0]?.[1]).toBeCloseTo(0, 4);
+  });
+
+  it("shifts a polygon to a selected start vertex and preserves ring closure", () => {
+    const points = [local(0, 0), local(1, 0), local(1, 1), local(0, 1)];
+    const shifted = shiftPolygonStart([...points, points[0]!], 2);
+
+    expect(shifted).toEqual([
+      points[2]!, points[3]!, points[0]!, points[1]!, points[2]!,
+    ]);
   });
 
   it("connects the selected endpoints in the requested order", () => {

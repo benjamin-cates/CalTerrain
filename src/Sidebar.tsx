@@ -29,7 +29,9 @@ import type { MountainPeak } from "./mountains";
 import type { NewCustomMountainPeak } from "./terrain/useCustomMountainPeaks";
 import {
   connectPolylines,
+  positionAtLineDistance,
   polylineLengthMeters,
+  shiftPolygonStart,
   trimPolyline,
   type PolygonOperation,
   type PolylineEnd,
@@ -149,8 +151,11 @@ type Props = {
     sourceName: string,
   ) => Promise<void>;
   onCreateElevationProfile: (lines: Position[][]) => Promise<ElevationProfile>;
+  onSampleElevation: (position: Position) => Promise<number | null>;
+  onAddSamplePoint: (position: Position, elevationMeters: number, sourceName: string) => void;
   placingCustomPoint: boolean;
   onStartCustomPointPlacement: () => void;
+  onAddCurrentLocation: (position: Position) => void;
   onSelect: (id: string | null) => void;
   onUpdate: (region: Region) => void;
   onRemove: (id: string) => void;
@@ -172,7 +177,14 @@ type MoreTarget =
       selectedIdAtOpen: string | null;
     };
 
-type MorePage = "trim" | "connect" | "union" | "intersection" | "difference";
+type MorePage =
+  | "sample"
+  | "shift-start"
+  | "trim"
+  | "connect"
+  | "union"
+  | "intersection"
+  | "difference";
 
 function regionTypeLabel(region: Region): string {
   if (region.type === "ellipse") return "Circle";
@@ -491,7 +503,8 @@ function MoreActionCategory({
 
 function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMeters,
   conversionHelp, areaSquareMeters, lengthMeters, prominenceMeters, isolationKm, measurementSystem,
-  popupRef, style, onClose, onConvert, onFocus, showDetails, analysisActions, editActions, children, onBack }: {
+  popupRef, style, onClose, onConvert, onFocus, showDetails, viewActions, analysisActions,
+  editActions, children, onBack }: {
   name: string;
   type: string;
   convertLabel?: string;
@@ -509,6 +522,7 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
   onConvert?: () => void;
   onFocus: () => void;
   showDetails: boolean;
+  viewActions?: ReactNode;
   analysisActions?: ReactNode;
   editActions?: ReactNode;
   children?: ReactNode;
@@ -545,6 +559,7 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
             )}
             <MoreActionCategory category="view">
               <button type="button" onClick={onFocus}>Move into focus</button>
+              {viewActions}
             </MoreActionCategory>
             {editActions && <MoreActionCategory category="edit">{editActions}</MoreActionCategory>}
           </div>
@@ -607,6 +622,10 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [morePosition, setMorePosition] = useState({ top: 16, left: 320 });
   const [morePage, setMorePage] = useState<MorePage | null>(null);
   const [moreActionError, setMoreActionError] = useState<string | null>(null);
+  const [samplePercent, setSamplePercent] = useState(50);
+  const [sampleElevationMeters, setSampleElevationMeters] = useState<number | null>(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [polygonStartIndex, setPolygonStartIndex] = useState("1");
   const [extremumLoading, setExtremumLoading] = useState<ElevationExtremum | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -624,6 +643,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [pointsEditorRegionId, setPointsEditorRegionId] = useState<string | null>(null);
   const [pointsEditorPosition, setPointsEditorPosition] = useState({ top: 16, left: 320 });
   const [pointsTransferBusy, setPointsTransferBusy] = useState(false);
+  const [currentLocationLoading, setCurrentLocationLoading] = useState(false);
+  const [currentLocationError, setCurrentLocationError] = useState<string | null>(null);
   const [pointsTransferFeedback, setPointsTransferFeedback] = useState<{
     regionId: string;
     message: string;
@@ -644,6 +665,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const featurePanelButtonRef = useRef<HTMLButtonElement>(null);
   const morePopupRef = useRef<HTMLDivElement>(null);
   const extremumRequestRef = useRef(0);
+  const sampleRequestRef = useRef(0);
   const profileRequestRef = useRef(0);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const pointsEditorRef = useRef<HTMLDivElement>(null);
@@ -710,9 +732,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const moreGeometries: FeatureGeometry[] = moreRegion && props.center
     ? customRegionGeometries(moreRegion, props.center)
     : moreFeatureOption?.geometry ? [moreFeatureOption.geometry] : [];
-  const moreLineGeometries = moreRegion?.type === "polyline"
-    ? [moreRegion.points]
-    : moreFeatureOption?.lines ?? linePiecesFromGeometries(moreGeometries);
+  const moreLineGeometries = useMemo(() => {
+    if (moreRegion?.type === "polyline") return [moreRegion.points];
+    if (moreFeatureOption?.lines) return moreFeatureOption.lines;
+    return linePiecesFromGeometries(
+      moreFeatureOption?.geometry ? [moreFeatureOption.geometry] : [],
+    );
+  }, [moreFeatureOption, moreRegion]);
   const hasPolygonGeometry = moreGeometries.some((geometry) =>
     geometry.type === "Polygon" || geometry.type === "MultiPolygon"
   );
@@ -722,6 +748,22 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const lineLengthMeters = moreLineGeometries.length > 0
     ? measureLineGeometries(moreLineGeometries)
     : undefined;
+  const sampleDistanceMeters = (lineLengthMeters ?? 0) * samplePercent / 100;
+  const samplePosition = useMemo(() => moreLineGeometries.length > 0 &&
+      (lineLengthMeters ?? 0) > 0 &&
+      props.center
+    ? positionAtLineDistance(moreLineGeometries, sampleDistanceMeters, props.center)
+    : null,
+  [lineLengthMeters, moreLineGeometries, props.center, sampleDistanceMeters]);
+  const polygonPointCount = moreRegion?.type === "polygon"
+    ? moreRegion.points.length - (
+      moreRegion.points.length > 1 &&
+      moreRegion.points[0]?.[0] === moreRegion.points.at(-1)?.[0] &&
+      moreRegion.points[0]?.[1] === moreRegion.points.at(-1)?.[1]
+        ? 1
+        : 0
+    )
+    : 0;
   const trimTotalMeters = moreRegion?.type === "polyline" && props.center
     ? polylineLengthMeters(moreRegion.points)
     : 0;
@@ -749,6 +791,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     : moreFeatureCategory === "peaks"
       ? !moreFeatureOption?.position
       : false;
+  const parsedPolygonStartIndex = Number(polygonStartIndex);
+  const polygonStartIndexValid = Number.isInteger(parsedPolygonStartIndex) &&
+    parsedPolygonStartIndex >= 1 &&
+    parsedPolygonStartIndex <= polygonPointCount;
+  const polygonStartPreviewPosition = moreRegion?.type === "polygon" &&
+      polygonStartIndexValid
+    ? moreRegion.points[parsedPolygonStartIndex - 1] ?? null
+    : null;
   const setSetting = <K extends keyof ViewSettings>(key: K, value: ViewSettings[K]) =>
     props.onSettingsChange({ ...settings, [key]: value });
   const closeMorePopup = () => {
@@ -769,8 +819,42 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     } else if (page === "connect") {
       setConnectOtherId(null);
       setConnectEnds({ current: "end", other: "start" });
+    } else if (page === "shift-start") {
+      setPolygonStartIndex("1");
     } else {
       setCombineOtherId(null);
+    }
+  };
+  const openSamplePointPage = () => {
+    if (!lineLengthMeters || lineLengthMeters <= 0 || !moreTarget) return;
+    setSamplePercent(50);
+    setSampleElevationMeters(null);
+    setSampleLoading(false);
+    if (moreTarget.kind === "region") {
+      props.onFocusRegion(moreTarget.id);
+    } else {
+      props.onFocusFeature(moreTarget.category, moreTarget.id);
+    }
+    openMorePage("sample");
+  };
+  const applySamplePoint = () => {
+    if (!samplePosition || sampleElevationMeters === null || !moreName) return;
+    props.onAddSamplePoint(samplePosition, sampleElevationMeters, moreName);
+    closeMorePopup();
+  };
+  const applyPolygonStartShift = () => {
+    if (moreRegion?.type !== "polygon" || !polygonStartIndexValid) return;
+    try {
+      props.onUpdate({
+        ...moreRegion,
+        points: shiftPolygonStart(moreRegion.points, parsedPolygonStartIndex - 1),
+      });
+      setMoreActionError(null);
+      closeMorePopup();
+    } catch (error) {
+      setMoreActionError(
+        error instanceof Error ? error.message : "Could not shift the polygon start point.",
+      );
     }
   };
   const updateTrimDistance = (edge: PolylineEnd, meters: number) => {
@@ -1017,6 +1101,44 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       }
     }
   };
+  const addCurrentLocation = async () => {
+    setCurrentLocationError(null);
+    if (!navigator.geolocation) {
+      setCurrentLocationError("Location access is not available in this browser.");
+      return;
+    }
+
+    setCurrentLocationLoading(true);
+    try {
+      const location = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          maximumAge: 60_000,
+          timeout: 15_000,
+        });
+      });
+      props.onAddCurrentLocation([
+        location.coords.longitude,
+        location.coords.latitude,
+      ]);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error) {
+        if (error.code === 1) {
+          setCurrentLocationError("Location permission was denied.");
+        } else if (error.code === 3) {
+          setCurrentLocationError("Could not determine your location before the request timed out.");
+        } else {
+          setCurrentLocationError("Your location could not be determined.");
+        }
+      } else {
+        setCurrentLocationError(
+          error instanceof Error ? error.message : "Could not get your current location.",
+        );
+      }
+    } finally {
+      setCurrentLocationLoading(false);
+    }
+  };
   const openElevationProfile = async () => {
     if (!moreName) return;
     const request = ++profileRequestRef.current;
@@ -1204,6 +1326,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         moreTriggerRef.current?.contains(target)
       ) return;
       if (
+        morePage === "shift-start" ||
+        morePage === "sample" ||
         morePage === "trim" ||
         morePage === "union" ||
         morePage === "intersection" ||
@@ -1224,6 +1348,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   useEffect(() => {
     if (!moreTarget) return;
     const operationPageIsOpen =
+      morePage === "shift-start" ||
+      morePage === "sample" ||
       morePage === "trim" ||
       morePage === "union" ||
       morePage === "intersection" ||
@@ -1243,6 +1369,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     }
   }, [morePage, moreTarget, props.selectedId, props.topographicOptions, shapeRegions]);
   useEffect(() => {
+    setPolygonStartIndex("1");
+  }, [moreRegion?.id]);
+  useEffect(() => {
     if (moreTarget && (
       customPeakDialogOpen ||
       props.placingCustomPoint ||
@@ -1257,7 +1386,40 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     props.placingCustomPoint,
   ]);
   useEffect(() => {
-    if (moreTarget?.kind !== "region" || !moreRegion) {
+    if (!moreTarget) {
+      props.onShapePreviewChange(null);
+      return;
+    }
+    if (morePage === "sample" && samplePosition) {
+      props.onShapePreviewChange({
+        lines: [],
+        markerPositions: [samplePosition],
+        highlightedRegionIds: [],
+        hiddenRegionIds: [],
+        hiddenHandleIds: [],
+        lineColor: "#ffda45",
+        lineWidth: 4.5,
+      });
+      return;
+    }
+    if (
+      morePage === "shift-start" &&
+      moreTarget.kind === "region" &&
+      moreRegion?.type === "polygon" &&
+      polygonStartPreviewPosition
+    ) {
+      props.onShapePreviewChange({
+        lines: [],
+        markerPositions: [polygonStartPreviewPosition],
+        highlightedRegionIds: [],
+        hiddenRegionIds: [],
+        hiddenHandleIds: [],
+        lineColor: "#ffda45",
+        lineWidth: 4.5,
+      });
+      return;
+    }
+    if (moreTarget.kind !== "region" || !moreRegion) {
       props.onShapePreviewChange(null);
       return;
     }
@@ -1324,11 +1486,41 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     props.center,
     props.onShapePreviewChange,
     props.selectedId,
+    polygonStartPreviewPosition,
+    samplePosition,
     selectedCombineRegion,
     selectedConnectRegion,
     trimEndMeters,
     trimStartMeters,
   ]);
+  useEffect(() => {
+    if (morePage !== "sample" || !samplePosition) {
+      sampleRequestRef.current += 1;
+      setSampleLoading(false);
+      setSampleElevationMeters(null);
+      return;
+    }
+    const request = ++sampleRequestRef.current;
+    setSampleLoading(true);
+    setSampleElevationMeters(null);
+    setMoreActionError(null);
+    void props.onSampleElevation(samplePosition).then((elevationMeters) => {
+      if (request === sampleRequestRef.current) {
+        setSampleElevationMeters(elevationMeters);
+      }
+    }).catch((error: unknown) => {
+      if (request === sampleRequestRef.current) {
+        setMoreActionError(
+          error instanceof Error ? error.message : "Could not sample terrain elevation.",
+        );
+      }
+    }).finally(() => {
+      if (request === sampleRequestRef.current) setSampleLoading(false);
+    });
+    return () => {
+      if (request === sampleRequestRef.current) sampleRequestRef.current += 1;
+    };
+  }, [morePage, props.onSampleElevation, samplePosition]);
   return (
     <aside className="sidebar controls-sidebar" aria-label="Map controls">
       <details className="control-section" open>
@@ -1418,11 +1610,20 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               }
               props.onStartCustomPointPlacement();
             }}>+ Point</button>
+          <button type="button" disabled={!props.canExportClipRegions || currentLocationLoading}
+            onClick={() => void addCurrentLocation()}>
+            {currentLocationLoading ? "Getting Location…" : "Current Location"}
+          </button>
           <button type="button" onClick={() => props.onAdd("ellipse")}>+ Circle</button>
           <button type="button" onClick={() => props.onAdd("rectangle")}>+ Rectangle</button>
           <button type="button" onClick={() => props.onAdd("polygon")}>+ Polygon</button>
           <button type="button" onClick={() => props.onAdd("polyline")}>+ Polyline</button>
         </div>
+        {currentLocationError && (
+          <small className="topographic-status is-error" role="alert">
+            {currentLocationError}
+          </small>
+        )}
         {shapeRegions.length > 0 && (
           <div className="region-list">
             <div className="region-list-header" aria-hidden="true">
@@ -1743,17 +1944,33 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               </>
             ) : undefined
           }
+          viewActions={moreLineGeometries.length > 0 ? (
+            <button type="button" disabled={(lineLengthMeters ?? 0) <= 0}
+              onClick={openSamplePointPage}>Sample point</button>
+          ) : undefined}
           editActions={
             moreRegion?.type === "polyline" ? (
               <>
+                <button type="button" onClick={() => {
+                  props.onUpdate({
+                    ...moreRegion,
+                    points: [...moreRegion.points].reverse(),
+                  });
+                  closeMorePopup();
+                }}>Reverse</button>
                 <button type="button" onClick={() => openMorePage("trim")}>Trim start/end</button>
                 <button type="button" onClick={() => openMorePage("connect")}>Connect polylines</button>
               </>
-            ) : moreRegion && (
-              moreRegion.type === "polygon" ||
-              moreRegion.type === "ellipse" ||
-              moreRegion.type === "rectangle"
-            ) ? (
+            ) : moreRegion?.type === "polygon" ? (
+              <>
+                <button type="button" onClick={() => openMorePage("shift-start")}>
+                  Shift start
+                </button>
+                <button type="button" onClick={() => openMorePage("union")}>Union</button>
+                <button type="button" onClick={() => openMorePage("intersection")}>Intersect</button>
+                <button type="button" onClick={() => openMorePage("difference")}>Difference</button>
+              </>
+            ) : moreRegion?.type === "ellipse" || moreRegion?.type === "rectangle" ? (
               <>
                 <button type="button" onClick={() => openMorePage("union")}>Union</button>
                 <button type="button" onClick={() => openMorePage("intersection")}>Intersect</button>
@@ -1783,6 +2000,62 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             closeMorePopup();
           }}
         >
+          {morePage === "shift-start" && moreRegion?.type === "polygon" && (
+            <div className="more-popup-tool">
+              <strong>Shift polygon start</strong>
+              <p>This polygon has {polygonPointCount} points. Choose the vertex index to preview as the new start.</p>
+              <label className="more-popup-shift-start">
+                <span>Start point index (1–{polygonPointCount})</span>
+                <input type="number" min="1" max={polygonPointCount} step="1"
+                  value={polygonStartIndex}
+                  onChange={(event) => setPolygonStartIndex(event.target.value)} />
+              </label>
+              {moreActionError && <p className="more-popup-error" role="alert">{moreActionError}</p>}
+              <button type="button" className="more-popup-apply"
+                disabled={!polygonStartIndexValid || !polygonStartPreviewPosition}
+                onClick={applyPolygonStartShift}>Apply shift</button>
+            </div>
+          )}
+          {morePage === "sample" && (
+            <div className="more-popup-tool">
+              <strong>Sample terrain along line</strong>
+              <p>Move the slider to preview a point and its terrain elevation along the line.</p>
+              {samplePosition ? (
+                <>
+                  <label className="more-popup-sample-slider">
+                    <span>Sample location</span>
+                    <input type="range" aria-label="Sample point along line"
+                      min="0" max="100" step="0.1" value={samplePercent}
+                      onChange={(event) => setSamplePercent(Number(event.target.value))} />
+                    <output>
+                      {formatLength(sampleDistanceMeters, settings.measurementSystem)}
+                      {" "}({samplePercent.toFixed(1)}%) of {formatLength(
+                        lineLengthMeters ?? 0,
+                        settings.measurementSystem,
+                      )}
+                    </output>
+                  </label>
+                  <p className="more-popup-sample-elevation" role="status">
+                    Elevation: {sampleLoading
+                      ? "Sampling terrain…"
+                      : sampleElevationMeters === null
+                        ? "Unavailable at this location."
+                        : formatElevation(sampleElevationMeters, settings.measurementSystem)}
+                  </p>
+                  {moreActionError && (
+                    <p className="more-popup-error" role="alert">{moreActionError}</p>
+                  )}
+                  <button type="button" className="more-popup-apply"
+                    disabled={sampleLoading || sampleElevationMeters === null}
+                    onClick={applySamplePoint}>Add sample point</button>
+                </>
+              ) : (
+                <p className="more-popup-error" role="alert">
+                  Could not find a sample position on this line.
+                </p>
+              )}
+            </div>
+          )}
           {morePage === "trim" && moreRegion?.type === "polyline" && (
             <div className="more-popup-tool">
               <strong>Trim polyline ends</strong>

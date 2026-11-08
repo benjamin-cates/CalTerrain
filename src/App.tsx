@@ -1050,6 +1050,17 @@ export function App() {
     };
     focusAnimationRef.current = window.requestAnimationFrame(animate);
   }, [canvasAspect, dataset, syncView]);
+  const addCurrentLocationPoint = useCallback((position: Position) => {
+    const region: Region = {
+      id: crypto.randomUUID(),
+      name: "Current Location",
+      type: "point",
+      position,
+    };
+    setRegions((current) => [...current, region]);
+    setSelectedRegionId(region.id);
+    focusPositions([position]);
+  }, [focusPositions]);
   const addElevationExtremumPoint = useCallback(async (
     geometries: FeatureGeometry[],
     lines: Position[][],
@@ -1089,6 +1100,28 @@ export function App() {
       elevationSampler,
     );
   }, [dataset, elevationSampler]);
+  const sampleTerrainElevation = useCallback((position: Position) => {
+    if (!elevationSampler) {
+      return Promise.reject(new Error("Terrain data is not available for elevation sampling."));
+    }
+    return elevationSampler(position);
+  }, [elevationSampler]);
+  const addSampledElevationPoint = useCallback((
+    position: Position,
+    elevationMeters: number,
+    sourceName: string,
+  ) => {
+    const point: Region = {
+      id: crypto.randomUUID(),
+      name: `Sample - ${sourceName}`,
+      type: "point",
+      position,
+      elevationMeters,
+    };
+    setRegions((current) => [...current, point]);
+    setSelectedRegionId(point.id);
+    focusPositions([position]);
+  }, [focusPositions]);
   const focusRegion = useCallback((regionId: string) => {
     const region = displayRegions.find((item) => item.id === regionId);
     if (!region || !dataset) return;
@@ -1499,9 +1532,12 @@ export function App() {
           onFocusFeature={focusFeature}
           onCreateElevationPoint={addElevationExtremumPoint}
           onCreateElevationProfile={getElevationProfile}
+          onSampleElevation={sampleTerrainElevation}
+          onAddSamplePoint={addSampledElevationPoint}
           onSelect={setSelectedRegionId}
           placingCustomPoint={placingCustomPoint}
           onStartCustomPointPlacement={toggleCustomPointPlacement}
+          onAddCurrentLocation={addCurrentLocationPoint}
           onUpdate={updateRegion} onRemove={removeRegion}
           onToggleVisibility={toggleRegionVisibility} onToggleClip={toggleRegionClip}
         />

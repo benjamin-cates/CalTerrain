@@ -44,6 +44,43 @@ function pointAtDistance(path: Position[], segmentLengths: number[], distanceMet
   return last;
 }
 
+export function positionAtLineDistance(
+  lines: Position[][],
+  distanceMeters: number,
+  center: Position,
+): Position {
+  let remainingDistance = Math.max(0, distanceMeters);
+  for (const line of lines) {
+    if (line.length < 2) continue;
+    const path = localPath(line, center);
+    const segmentLengths = line.slice(1).map((position, index) => {
+      const previous = line[index];
+      return previous ? measureLineGeometries([[previous, position]]) : 0;
+    });
+    const lineLength = segmentLengths.reduce((total, length) => total + length, 0);
+    if (remainingDistance <= lineLength) {
+      return fromLocal(pointAtDistance(path, segmentLengths, remainingDistance), center);
+    }
+    remainingDistance -= lineLength;
+  }
+  const last = lines.flatMap((line) => line).at(-1);
+  if (!last) throw new Error("Cannot sample a line without coordinates.");
+  return last;
+}
+
+export function shiftPolygonStart(points: Position[], startIndex: number): Position[] {
+  const isClosed = points.length > 1 &&
+    points[0]?.[0] === points.at(-1)?.[0] &&
+    points[0]?.[1] === points.at(-1)?.[1];
+  const openPoints = isClosed ? points.slice(0, -1) : [...points];
+  if (!Number.isInteger(startIndex) || startIndex < 0 || startIndex >= openPoints.length) {
+    throw new RangeError("The polygon start index is outside the available vertices.");
+  }
+  const shifted = [...openPoints.slice(startIndex), ...openPoints.slice(0, startIndex)];
+  if (isClosed && shifted[0]) shifted.push(shifted[0]);
+  return shifted;
+}
+
 export function trimPolyline(
   points: Position[],
   startMeters: number,
