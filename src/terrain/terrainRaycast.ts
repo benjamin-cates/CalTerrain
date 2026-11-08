@@ -13,7 +13,15 @@ export type TerrainRay = {
   direction: Vector3Tuple;
 };
 
-export type TerrainRaycast = (ray: TerrainRay, exaggeration: number) => Position | null;
+export type TerrainRaycastHit = {
+  position: Position;
+  elevationKm: number;
+};
+
+export type TerrainRaycast = (
+  ray: TerrainRay,
+  exaggeration: number,
+) => TerrainRaycastHit | null;
 export type TerrainRasterProvider = (tile: Tile) => TerrainElevationRaster | null;
 
 type TileIntersection = {
@@ -191,13 +199,13 @@ function intersectTileMesh(
   return null;
 }
 
-export function raycastTerrainMesh(
+export function raycastTerrainMeshHit(
   ray: TerrainRay,
   tiles: Tile[],
   center: Position,
   exaggeration: number,
   getRaster: TerrainRasterProvider,
-): Position | null {
+): TerrainRaycastHit | null {
   const intersections = tiles
     .map((tile) => intersectTileBounds(ray, tile, center))
     .filter((intersection): intersection is TileIntersection => intersection !== null)
@@ -214,8 +222,21 @@ export function raycastTerrainMesh(
     if (distance !== null && distance < nearestDistance) nearestDistance = distance;
   }
   if (!Number.isFinite(nearestDistance)) return null;
-  return [
-    ray.origin[0] + ray.direction[0] * nearestDistance,
-    ray.origin[2] + ray.direction[2] * nearestDistance,
-  ];
+  return {
+    position: [
+      ray.origin[0] + ray.direction[0] * nearestDistance,
+      ray.origin[2] + ray.direction[2] * nearestDistance,
+    ],
+    elevationKm: ray.origin[1] + ray.direction[1] * nearestDistance,
+  };
+}
+
+export function raycastTerrainMesh(
+  ray: TerrainRay,
+  tiles: Tile[],
+  center: Position,
+  exaggeration: number,
+  getRaster: TerrainRasterProvider,
+): Position | null {
+  return raycastTerrainMeshHit(ray, tiles, center, exaggeration, getRaster)?.position ?? null;
 }

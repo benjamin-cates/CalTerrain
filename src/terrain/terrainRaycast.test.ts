@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { raycastTerrainMesh } from "./terrainRaycast";
+import { raycastTerrainMesh, raycastTerrainMeshHit } from "./terrainRaycast";
 import type { TerrainElevationRaster } from "./terrainHeight";
 
 function flatRaster(elevationMeters: number): TerrainElevationRaster {
@@ -22,7 +22,7 @@ function flatRaster(elevationMeters: number): TerrainElevationRaster {
 describe("terrain mesh raycasting", () => {
   test("intersects the nearest point on a displaced terrain tile", () => {
     const raster = flatRaster(1_000);
-    const hit = raycastTerrainMesh(
+    const hit = raycastTerrainMeshHit(
       { origin: [-1, 3, 0], direction: [1, -1, 0] },
       [{ z: 0, x: 0, y: 0 }],
       [0, 0],
@@ -30,8 +30,9 @@ describe("terrain mesh raycasting", () => {
       () => raster,
     );
 
-    expect(hit?.[0]).toBeCloseTo(1, 6);
-    expect(hit?.[1]).toBeCloseTo(0, 6);
+    expect(hit?.position[0]).toBeCloseTo(1, 6);
+    expect(hit?.position[1]).toBeCloseTo(0, 6);
+    expect(hit?.elevationKm).toBeCloseTo(1, 6);
   });
 
   test("handles vertical rays and applies exaggeration at mesh vertices", () => {

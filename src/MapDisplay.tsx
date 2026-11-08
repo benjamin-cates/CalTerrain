@@ -54,6 +54,8 @@ type Props = {
   onHandlePositions: (handles: RegionHandle[]) => void;
   onTerrainRaycastReady: (raycast: TerrainRaycast | null) => void;
   isPlacingCustomPoint: boolean;
+  isRightPanning: boolean;
+  centerTerrainElevationRef: { current: number | null };
   onPointElevationChange: (id: string, elevationMeters: number) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
@@ -131,6 +133,7 @@ export function MapDisplay(props: Props) {
               onHandlePositions={props.onHandlePositions}
               onPointElevationChange={props.onPointElevationChange}
               onTerrainRaycastReady={props.onTerrainRaycastReady}
+              centerTerrainElevationRef={props.centerTerrainElevationRef}
               viewRef={viewRef} view={view} />
           </Canvas>
         ) : (
@@ -142,6 +145,7 @@ export function MapDisplay(props: Props) {
             <span className="empty-note">{props.dataError}</span>
           </div>
         )}
+        {props.isRightPanning && <div className="map-center-crosshair" aria-hidden="true" />}
         <div className="map-controls">
           <button type="button" aria-pressed={!props.terrainVisible && !props.imageExportPreview}
             aria-label={props.imageExportPreview

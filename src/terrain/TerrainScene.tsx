@@ -43,11 +43,13 @@ function CameraRig({
   onInvalidateReady,
   onCameraReady,
   viewRef,
+  centerTerrainElevationRef,
   topDown,
 }: {
   onInvalidateReady: (invalidate: (() => void) | null) => void;
   onCameraReady: (camera: Camera | null) => void;
   viewRef: { current: ViewState };
+  centerTerrainElevationRef: { current: number | null };
   topDown: boolean;
 }) {
   const { camera, invalidate } = useThree();
@@ -70,7 +72,11 @@ function CameraRig({
 
   useFrame(() => {
     const view = viewRef.current;
-    target.set(view.target[0], 0, view.target[1]);
+    target.set(
+      view.target[0],
+      topDown ? 0 : centerTerrainElevationRef.current ?? 0,
+      view.target[1],
+    );
     if (topDown) {
       position.set(target.x, target.y + view.distance, target.z);
     } else {
@@ -112,6 +118,7 @@ export function TerrainScene({
   onTerrainRaycastReady,
   terrainVisible,
   viewRef,
+  centerTerrainElevationRef,
   settings,
   regions,
   selectedRegionId,
@@ -136,6 +143,7 @@ export function TerrainScene({
   onTerrainRaycastReady: (raycast: TerrainRaycast | null) => void;
   terrainVisible: boolean;
   viewRef: { current: ViewState };
+  centerTerrainElevationRef: { current: number | null };
   settings: ViewSettings;
   regions: Region[];
   selectedRegionId: string | null;
@@ -465,7 +473,8 @@ export function TerrainScene({
         />
       </Suspense>
       <CameraRig onCameraReady={onCameraReady} onInvalidateReady={onInvalidateReady}
-        viewRef={viewRef} topDown={imageExportPreview} />
+        viewRef={viewRef} centerTerrainElevationRef={centerTerrainElevationRef}
+        topDown={imageExportPreview} />
     </>
   );
 }

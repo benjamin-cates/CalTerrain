@@ -20,7 +20,7 @@ import {
   type TerrainElevationRaster,
 } from "./terrain/terrainHeight";
 import {
-  raycastTerrainMesh,
+  raycastTerrainMeshHit,
   type TerrainRaycast,
 } from "./terrain/terrainRaycast";
 import {
@@ -694,7 +694,7 @@ export function RegionOverlay({
   }, [center, getRaster, tiles]);
   const raycastTerrain = useMemo<TerrainRaycast>(
     () => (ray, exaggeration) =>
-      raycastTerrainMesh(ray, tiles, center, exaggeration, getRaster),
+      raycastTerrainMeshHit(ray, tiles, center, exaggeration, getRaster),
     [center, getRaster, tiles],
   );
   useEffect(() => {

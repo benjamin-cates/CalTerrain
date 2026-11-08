@@ -95,6 +95,13 @@ type Gesture = {
   handle?: RegionHandle;
 };
 
+type PinchGesture = {
+  pointerIds: [number, number];
+  distance: number;
+};
+
+const PINCH_ZOOM_SENSITIVITY = 2.625;
+
 function createPieceRegions(
   name: string,
   type: "polygon" | "polyline",
@@ -463,6 +470,7 @@ export function App() {
     });
   }, []);
   const [placingCustomPoint, setPlacingCustomPoint] = useState(false);
+  const [isRightPanning, setIsRightPanning] = useState(false);
   const [terrainVisible, setTerrainVisible] = useState(true);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [canvasAspect, setCanvasAspect] = useState(1.5);
@@ -474,10 +482,13 @@ export function App() {
   const focusAnimationRef = useRef<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<Camera | null>(null);
+  const centerTerrainElevationRef = useRef<number | null>(null);
   const datasetRef = useRef(dataset);
   const regionsRef = useRef(regions);
   const regionHandlesRef = useRef<RegionHandle[]>([]);
   const gestureRef = useRef<Gesture | null>(null);
+  const touchPointersRef = useRef(new Map<number, Position>());
+  const pinchGestureRef = useRef<PinchGesture | null>(null);
   const didDragRef = useRef(false);
   const placingCustomPointRef = useRef(false);
   const terrainRaycastRef = useRef<TerrainRaycast | null>(null);
@@ -485,6 +496,8 @@ export function App() {
   const placeCustomPointRef = useRef<(position: Position) => void>(() => { });
   const mapRaycaster = useMemo(() => new Raycaster(), []);
   const mapPointer = useMemo(() => new Vector2(), []);
+  const centerRaycaster = useMemo(() => new Raycaster(), []);
+  const centerScreenPointer = useMemo(() => new Vector2(0, 0), []);
   const mapPlane = useMemo(() => new Plane(new Vector3(0, 1, 0), -0.1), []);
   const mapIntersection = useMemo(() => new Vector3(), []);
   datasetRef.current = dataset;
@@ -622,7 +635,7 @@ export function App() {
       direction: [direction.x, direction.y, direction.z],
     };
     const terrainHit = terrainRaycastRef.current?.(terrainRay, settings.exaggeration) ?? null;
-    if (terrainHit) return terrainHit;
+    if (terrainHit) return terrainHit.position;
     return intersection ? [intersection.x, intersection.z] : null;
   }, [mapIntersection, mapPlane, mapPointer, mapRaycaster, settings.exaggeration]);
 
@@ -640,7 +653,47 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (exportFormat === "image") return;
+    const stage = stageRef.current;
+    if (!stage) return;
+    const preventTrackpadPageZoom = (event: WheelEvent) => {
+      if (event.ctrlKey) event.preventDefault();
+    };
+    stage.addEventListener("wheel", preventTrackpadPageZoom, { passive: false });
+    return () => stage.removeEventListener("wheel", preventTrackpadPageZoom);
+  }, [exportFormat]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        touchPointersRef.current.set(event.pointerId, [event.clientX, event.clientY]);
+      }
+      const pinch = pinchGestureRef.current;
+      if (pinch?.pointerIds.includes(event.pointerId)) {
+        const first = touchPointersRef.current.get(pinch.pointerIds[0]);
+        const second = touchPointersRef.current.get(pinch.pointerIds[1]);
+        if (first && second) {
+          const nextDistance = Math.max(
+            1,
+            Math.hypot(second[0] - first[0], second[1] - first[1]),
+          );
+          const current = viewRef.current;
+          syncView({
+            ...current,
+            distance: Math.max(
+              10,
+              Math.min(
+                4_000,
+                current.distance *
+                  (pinch.distance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
+              ),
+            ),
+          });
+          pinch.distance = nextDistance;
+          didDragRef.current = true;
+        }
+        return;
+      }
       const gesture = gestureRef.current;
       if (!gesture || gesture.pointerId !== event.pointerId) return;
 
@@ -650,6 +703,7 @@ export function App() {
       gesture.y = event.clientY;
       if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 4) {
         didDragRef.current = true;
+        if (gesture.button === 2) setIsRightPanning(true);
       }
 
       if (gesture.handle) {
@@ -669,7 +723,7 @@ export function App() {
         syncView({
           ...current,
           azimuth: current.azimuth - dx * 0.005,
-          polar: Math.max(0, Math.min(1.42, current.polar + dy * 0.004)),
+          polar: Math.max(0, Math.min(1.42, current.polar - dy * 0.004)),
         });
         return;
       }
@@ -681,21 +735,34 @@ export function App() {
       const cosAzimuth = Math.cos(current.azimuth);
       const sinAzimuth = Math.sin(current.azimuth);
       const cosPolar = Math.cos(current.polar);
+      const verticalPanScale = unitsPerPixel / Math.max(0.15, cosPolar);
 
       syncView({
         ...current,
         target: [
           current.target[0] +
-          unitsPerPixel * (-dx * cosAzimuth - dy * sinAzimuth * cosPolar),
+          (-dx * cosAzimuth * unitsPerPixel - dy * sinAzimuth * verticalPanScale),
           current.target[1] +
-          unitsPerPixel * (dx * sinAzimuth - dy * cosAzimuth * cosPolar),
+          (dx * sinAzimuth * unitsPerPixel - dy * cosAzimuth * verticalPanScale),
         ],
       });
     };
 
     const endPointerGesture = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        touchPointersRef.current.delete(event.pointerId);
+      }
+      const pinch = pinchGestureRef.current;
+      if (pinch?.pointerIds.includes(event.pointerId)) {
+        pinchGestureRef.current = null;
+        gestureRef.current = null;
+        didDragRef.current = true;
+        syncView(viewRef.current, true);
+        return;
+      }
       const gesture = gestureRef.current;
       if (!gesture || gesture.pointerId !== event.pointerId) return;
+      if (gesture.button === 2) setIsRightPanning(false);
       if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 4) {
         didDragRef.current = true;
       }
@@ -728,6 +795,9 @@ export function App() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", endPointerGesture);
       window.removeEventListener("pointercancel", endPointerGesture);
+      touchPointersRef.current.clear();
+      pinchGestureRef.current = null;
+      gestureRef.current = null;
       if (wheelSyncTimerRef.current !== null) {
         window.clearTimeout(wheelSyncTimerRef.current);
         wheelSyncTimerRef.current = null;
@@ -761,6 +831,27 @@ export function App() {
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 2) return;
     if (event.target instanceof Element && event.target.closest("button, input, select")) return;
+    if (event.pointerType === "touch") {
+      touchPointersRef.current.set(event.pointerId, [event.clientX, event.clientY]);
+      if (touchPointersRef.current.size >= 2) {
+        const pointerIds = [...touchPointersRef.current.keys()].slice(0, 2);
+        const first = touchPointersRef.current.get(pointerIds[0] ?? -1);
+        const second = touchPointersRef.current.get(pointerIds[1] ?? -1);
+        if (pointerIds.length === 2 && first && second) {
+          gestureRef.current = null;
+          pinchGestureRef.current = {
+            pointerIds: [pointerIds[0]!, pointerIds[1]!],
+            distance: Math.max(
+              1,
+              Math.hypot(second[0] - first[0], second[1] - first[1]),
+            ),
+          };
+          didDragRef.current = true;
+          event.preventDefault();
+          return;
+        }
+      }
+    }
     didDragRef.current = false;
     let handle: RegionHandle | undefined;
     const region = regions.find((item) => item.id === selectedRegionId);
@@ -802,6 +893,35 @@ export function App() {
       placingPoint: placingCustomPointRef.current,
       handle,
     };
+    if (event.button === 2 && !handle) {
+      const camera = cameraRef.current;
+      const terrainRaycast = terrainRaycastRef.current;
+      if (camera && terrainRaycast) {
+        camera.updateMatrixWorld();
+        centerRaycaster.setFromCamera(centerScreenPointer, camera);
+        const ray = centerRaycaster.ray;
+        const hit = terrainRaycast({
+          origin: [ray.origin.x, ray.origin.y, ray.origin.z],
+          direction: [ray.direction.x, ray.direction.y, ray.direction.z],
+        }, settings.exaggeration);
+        if (hit) {
+          const dx = camera.position.x - hit.position[0];
+          const dy = camera.position.y - hit.elevationKm;
+          const dz = camera.position.z - hit.position[1];
+          const distance = Math.hypot(dx, dy, dz);
+          if (distance > 0) {
+            centerTerrainElevationRef.current = hit.elevationKm;
+            syncView({
+              ...viewRef.current,
+              target: [hit.position[0], hit.position[1]],
+              distance,
+              azimuth: Math.atan2(dx, dz),
+              polar: Math.acos(Math.max(-1, Math.min(1, dy / distance))),
+            }, true);
+          }
+        }
+      }
+    }
     if (handle) {
       event.preventDefault();
       didDragRef.current = true;
@@ -813,7 +933,13 @@ export function App() {
     const current = viewRef.current;
     syncView({
       ...current,
-      distance: Math.max(10, Math.min(4_000, current.distance * Math.exp(event.deltaY * 0.001))),
+      distance: Math.max(
+        10,
+        Math.min(
+          4_000,
+          current.distance * Math.exp(event.deltaY * (event.ctrlKey ? 0.002625 : 0.001)),
+        ),
+      ),
     });
     if (wheelSyncTimerRef.current !== null) window.clearTimeout(wheelSyncTimerRef.current);
     wheelSyncTimerRef.current = window.setTimeout(() => {
@@ -1566,6 +1692,8 @@ export function App() {
             onHandlePositions={registerRegionHandles}
             onTerrainRaycastReady={registerTerrainRaycast}
             isPlacingCustomPoint={placingCustomPoint}
+            isRightPanning={isRightPanning}
+            centerTerrainElevationRef={centerTerrainElevationRef}
             onPointElevationChange={updatePointElevation}
             onPointerDown={handlePointerDown} onWheel={handleWheel}
             onZoom={changeZoom} onReset={() => syncView(INITIAL_VIEW, true)}
