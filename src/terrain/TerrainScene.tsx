@@ -11,6 +11,7 @@ import {
 } from "../highways";
 import type { MountainPeak } from "../mountains";
 import type { RailwayFeatureCollection } from "../railways";
+import type { RiverFeatureCollection } from "../rivers";
 import type { TerrainExportBoundingBox } from "./terrainExport";
 import type { TerrainRaycast } from "./terrainRaycast";
 import {
@@ -105,6 +106,7 @@ export function TerrainScene({
   data,
   highwayFeatures,
   railwayFeatures,
+  riverFeatures,
   nationalParks,
   nationalForests,
   longitudeLatitudeLines,
@@ -130,6 +132,7 @@ export function TerrainScene({
   data: Dataset;
   highwayFeatures: HighwayFeatureCollection | null;
   railwayFeatures: RailwayFeatureCollection | null;
+  riverFeatures: RiverFeatureCollection | null;
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
@@ -189,6 +192,10 @@ export function TerrainScene({
   const selectedRailwayNames = useMemo(
     () => new Set(topographicSelections.railways),
     [topographicSelections.railways],
+  );
+  const selectedRiverNames = useMemo(
+    () => new Set(topographicSelections.rivers),
+    [topographicSelections.rivers],
   );
   const selectedRouteIds = useMemo(
     () => new Set([
@@ -359,7 +366,28 @@ export function TerrainScene({
         }]
       : [];
   }, [data.metadata.center, railwayFeatures, selectedRailwayNames]);
+  const riverLineLayers = useMemo<TerrainLineLayer[]>(() => {
+    if (!riverFeatures || selectedRiverNames.size === 0) return [];
+    const lines = riverFeatures.features
+      .filter((feature) => selectedRiverNames.has(feature.properties.name))
+      .flatMap((feature) =>
+        feature.geometry.type === "LineString"
+          ? [feature.geometry.coordinates]
+          : feature.geometry.coordinates
+      )
+      .map((line) => line.map((position) => toLocal(position, data.metadata.center)));
+    return lines.length > 0
+      ? [{
+          id: "rivers",
+          lines,
+          color: "#56a8c8",
+          lineWidth: 1.8,
+          opacity: 0.9,
+        }]
+      : [];
+  }, [data.metadata.center, riverFeatures, selectedRiverNames]);
   const routeLines = useMemo<TerrainLineLayer[]>(() => [
+    ...riverLineLayers,
     ...railwayLineLayers,
     ...(selectedHighwayNumbers.size > 0
       ? [{
@@ -383,6 +411,7 @@ export function TerrainScene({
     highwayLines,
     interstateLines,
     railwayLineLayers,
+    riverLineLayers,
     selectedHighwayNumbers,
     selectedInterstateNumbers,
   ]);

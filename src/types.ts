@@ -33,6 +33,7 @@ export const COMBINED_IMAGE_PREVIEW_ID = "combined-image-preview";
 export type TopographicFeatureCategory =
   | "highways"
   | "interstates"
+  | "rivers"
   | "counties"
   | "peaks"
   | "nationalParks"
@@ -61,6 +62,7 @@ export type TopographicFeatureOption = {
 export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelections = {
   highways: [],
   interstates: [],
+  rivers: [],
   counties: [],
   peaks: [],
   nationalParks: [],

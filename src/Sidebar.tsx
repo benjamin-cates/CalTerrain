@@ -202,6 +202,7 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
   switch (category) {
     case "highways": return "Highway route";
     case "interstates": return "Interstate route";
+    case "rivers": return "River";
     case "counties": return "County";
     case "peaks": return "Mountain peak";
     case "nationalParks": return "National park";
@@ -213,6 +214,7 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
 
 const TOPOGRAPHIC_CATEGORIES: FeatureCategoryButton[] = [
   { id: "peaks", label: "Mountain peaks" },
+  { id: "rivers", label: "Rivers" },
 ];
 
 const MANMADE_CATEGORIES: FeatureCategoryButton[] = [
@@ -260,6 +262,10 @@ const FEATURE_SOURCES: Partial<Record<TopographicFeatureCategory, { label: strin
   interstates: {
     label: "California Highways and Interstates",
     href: "https://gis.data.ca.gov/datasets/8aa7227fac664e9cb72c8a62f0d43bd5_0/explore",
+  },
+  rivers: {
+    label: "National Hydrography Dataset (NHD)",
+    href: "https://data.cnra.ca.gov/dataset/national-hydrography-dataset-nhd",
   },
   counties: {
     label: "California County Boundaries and Identifiers",

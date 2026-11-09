@@ -48,6 +48,8 @@ import { getHighwayRouteLines, getHighwayRouteNumbers } from "./highways";
 import { useHighwayData } from "./terrain/useHighwayData";
 import { getRailwayFeatureOptions } from "./railways";
 import { useRailwayData } from "./terrain/useRailwayData";
+import { getRiverFeatureOptions } from "./rivers";
+import { useRiverData } from "./terrain/useRiverData";
 import { useMountainData } from "./terrain/useMountainData";
 import { useCustomMountainPeaks } from "./terrain/useCustomMountainPeaks";
 import {
@@ -218,7 +220,7 @@ export function App() {
     [dataset?.metadata],
   );
   const nationalParkData = useBoundaryFeatureData(
-    "/data/boundaries/national%20parks.zip",
+    "/data/boundaries/national_parks.zip",
     "National park",
     "UNIT_CODE",
     "UNIT_NAME",
@@ -247,6 +249,7 @@ export function App() {
   const [heightPalette, setHeightPalette] = useState<TerrainHeightPalette>("grayscale");
   const [highwayDataRequested, setHighwayDataRequested] = useState(false);
   const [railwayDataRequested, setRailwayDataRequested] = useState(false);
+  const [riverDataRequested, setRiverDataRequested] = useState(false);
   const [mountainDataRequested, setMountainDataRequested] = useState(false);
   const { features: highwayFeatures, loading: highwayLoading, error: highwayError } =
     useHighwayData(
@@ -257,6 +260,10 @@ export function App() {
   const { features: railwayFeatures, loading: railwayLoading, error: railwayError } =
     useRailwayData(
       railwayDataRequested || topographicSelections.railways.length > 0,
+    );
+  const { features: riverFeatures, loading: riverLoading, error: riverError } =
+    useRiverData(
+      riverDataRequested || topographicSelections.rivers.length > 0,
     );
   const { peaks, loading: mountainLoading, error: mountainError } =
     useMountainData(mountainDataRequested || topographicSelections.peaks.length > 0);
@@ -270,9 +277,9 @@ export function App() {
     const routeOptions = (routeType: "highways" | "interstates") => {
       const options = highwayFeatures
         ? getHighwayRouteNumbers(
-            highwayFeatures,
-            routeType === "highways" ? "highway" : "interstate",
-          )
+          highwayFeatures,
+          routeType === "highways" ? "highway" : "interstate",
+        )
         : [];
       return options.map((number) => ({
         id: number,
@@ -318,6 +325,7 @@ export function App() {
         geometry: feature.geometry,
       })),
       railways: railwayFeatures ? getRailwayFeatureOptions(railwayFeatures) : [],
+      rivers: riverFeatures ? getRiverFeatureOptions(riverFeatures) : [],
     };
   }, [
     allMountainPeaks,
@@ -327,6 +335,7 @@ export function App() {
     nationalForestData.options,
     nationalParkData.options,
     railwayFeatures,
+    riverFeatures,
     settings.measurementSystem,
   ]);
   const topographicStatus = useMemo(() => ({
@@ -338,6 +347,7 @@ export function App() {
     nationalForests: { loading: nationalForestData.loading, error: nationalForestData.error },
     longitudeLatitudeLines: { loading: !dataset, error: dataError },
     railways: { loading: railwayLoading, error: railwayError },
+    rivers: { loading: riverLoading, error: riverError },
   }), [
     countiesError,
     countiesLoading,
@@ -353,6 +363,8 @@ export function App() {
     nationalParkData.loading,
     railwayError,
     railwayLoading,
+    riverError,
+    riverLoading,
   ]);
   const [regions, setRegions] = useState<Region[]>([]);
   const displayRegions = useMemo(
@@ -552,6 +564,8 @@ export function App() {
       void nationalForestData.load();
     } else if (category === "railways") {
       setRailwayDataRequested(true);
+    } else if (category === "rivers") {
+      setRiverDataRequested(true);
     }
   }, [loadCounties, nationalForestData.load, nationalParkData.load]);
   const toggleTopographicFeature = useCallback((
@@ -685,7 +699,7 @@ export function App() {
               Math.min(
                 4_000,
                 current.distance *
-                  (pinch.distance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
+                (pinch.distance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
               ),
             ),
           });
@@ -1676,6 +1690,7 @@ export function App() {
             welcomeOpen={welcomeOpen} onDismissWelcome={dismissWelcome}
             highwayFeatures={highwayFeatures}
             railwayFeatures={railwayFeatures}
+            riverFeatures={riverFeatures}
             nationalParks={nationalParkData.features}
             nationalForests={nationalForestData.features}
             longitudeLatitudeLines={longitudeLatitudeGrid}

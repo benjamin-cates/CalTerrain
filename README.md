@@ -2,29 +2,37 @@
 
 # CalTerrain
 
-CalTerrain is an interactive 3D California terrain viewer. It streams USGS elevation data and California GIS boundary data. Explore terrain, analyze features, create and edit shapes, and export clipped regions as PNG images or 3D models.
+CalTerrain is an interactive 3D California terrain viewer. It streams USGS elevation data and California topographical and man-made features. Explore terrain, analyze features, create and edit shapes, and export clipped regions as PNG images or 3D models.
 
 [Open CalTerrain](https://calterrain.thebenjicat.dev)
-
-## Railway data sources
-
-- [SD MTS](https://www.arcgis.com/home/item.html?id=1ab4e13ae5804f678e8863e36d3929e7#overview)
-- [Most trains](https://gisdata-caltrans.opendata.arcgis.com/datasets/2ac93358aca84aa7b547b29a42d5ff52_0/about)
-- [BART](https://www.bart.gov/schedules/developers/geo)
-- [Sacramento light rail](https://www.sacrt.com/transit-data-portal/)
-- [LA Metro lines](https://www.arcgis.com/home/item.html?id=c738efee27cc40c5804adde7119175c8#overview)
 
 ## Features
 
 - **Explore terrain:** pan, rotate, and zoom around California; adjust vertical
   exaggeration, terrain palette, and lighting. Terrain data is streamed to keep high quality views with low memory usage.
-- **View mapped features:** enable highways and interstates, mountain peaks,
+- **View mapped features:** enable rivers, highways and interstates, mountain peaks,
   railways, counties, and national parks and forests.
 - **Create custom shapes:** add points, circles, rectangles, polygons, and
   polylines. Intersect, union, and subtract areas to create custom shapes.
 - **Analyze and edit regions:** inspect area, perimeter, and line length; sample high and low terrain points; create elevation
   profiles of lines.
 - **Export terrain:** mark regions with **CUT** and download as GLB or PNG
+
+## Data sources
+
+- [USGS 1-arcsecond terrain data from The National Map](https://prd-tnm.s3.amazonaws.com/index.html)
+- [National Hydrography Dataset (NHD)](https://data.cnra.ca.gov/dataset/national-hydrography-dataset-nhd)
+- [California Highways and Interstates](https://gis.data.ca.gov/datasets/8aa7227fac664e9cb72c8a62f0d43bd5_0/explore)
+- [California County Boundaries and Identifiers](https://gis.data.ca.gov/datasets/California::california-county-boundaries-and-identifiers/explore)
+- [List of Mountain Peaks of California (Wikipedia)](https://en.wikipedia.org/wiki/List_of_mountain_peaks_of_California)
+- [National Parks (USDOT Open Data)](https://data-usdot.opendata.arcgis.com/datasets/usdot::national-parks/explore)
+- [Forest Administrative Boundaries (U.S. Forest Service)](https://data-usfs.hub.arcgis.com/datasets/usfs::forest-administrative-boundaries-feature-layer/explore)
+- Various passenger rail datasets
+  - [SD MTS](https://www.arcgis.com/home/item.html?id=1ab4e13ae5804f678e8863e36d3929e7#overview)
+  - [Most trains](https://gisdata-caltrans.opendata.arcgis.com/datasets/2ac93358aca84aa7b547b29a42d5ff52_0/about)
+  - [BART](https://www.bart.gov/schedules/developers/geo)
+  - [Sacramento light rail](https://www.sacrt.com/transit-data-portal/)
+  - [LA Metro lines](https://www.arcgis.com/home/item.html?id=c738efee27cc40c5804adde7119175c8#overview)
 
 ## Run the app
 
