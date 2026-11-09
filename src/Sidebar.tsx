@@ -639,6 +639,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [morePosition, setMorePosition] = useState({ top: 16, left: 320 });
   const [morePage, setMorePage] = useState<MorePage | null>(null);
   const [moreActionError, setMoreActionError] = useState<string | null>(null);
+  const [featureSearchQuery, setFeatureSearchQuery] = useState("");
   const [nearbyListLeft, setNearbyListLeft] = useState<number | null>(null);
   const [samplePercent, setSamplePercent] = useState(50);
   const [sampleElevationMeters, setSampleElevationMeters] = useState<number | null>(null);
@@ -960,6 +961,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   ) => {
     closePointsEditor();
     closeMorePopup();
+    setFeatureSearchQuery("");
     if (featurePanel === category) {
       setFeaturePanel(null);
       return;
@@ -1274,6 +1276,16 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       props.topographicOptions[featurePanel].some((option) => option.id === id)
     ).length
     : 0;
+  const featurePanelLabel = featurePanel
+    ? [...TOPOGRAPHIC_CATEGORIES, ...MANMADE_CATEGORIES]
+      .find((category) => category.id === featurePanel)?.label ?? "Feature"
+    : "Feature";
+  const featureSearchTerm = featureSearchQuery.trim().toLowerCase();
+  const filteredFeatureOptions = featurePanel
+    ? props.topographicOptions[featurePanel].filter((option) =>
+      `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(featureSearchTerm)
+    )
+    : [];
   const featureSource = featurePanel ? FEATURE_SOURCES[featurePanel] : null;
   const renderFeatureButtons = (categories: FeatureCategoryButton[]) =>
     categories.map(({ id, label }) => {
@@ -1330,6 +1342,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
+  }, [featurePanel]);
+  useEffect(() => {
+    if (!featurePanel) setFeatureSearchQuery("");
   }, [featurePanel]);
   useEffect(() => {
     if (!pointsEditorRegionId) return;
@@ -1908,31 +1923,28 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           ref={featurePanelRef}
           className="topographic-popup"
           role="dialog"
-          aria-label={`${[...TOPOGRAPHIC_CATEGORIES, ...MANMADE_CATEGORIES].find((category) => category.id === featurePanel)?.label ?? "Feature"} options`}
+          aria-label={`${featurePanelLabel} options`}
           style={{
             top: featurePanelPosition.top,
             left: featurePanelPosition.left,
             maxHeight: `calc(100dvh - ${featurePanelPosition.top}px - 16px)`,
           }}
         >
-          <div className="topographic-popup-header">
+          <div className="topographic-popup-header topographic-feature-popup-header">
             <div>
-              <strong>{[...TOPOGRAPHIC_CATEGORIES, ...MANMADE_CATEGORIES].find((category) => category.id === featurePanel)?.label}</strong>
+              <strong>{featurePanelLabel}</strong>
               <small>{selectedFeatureCount} of {featureOptionCount} enabled</small>
+            </div>
+            <div className="topographic-feature-popup-source">
+              {featureSource && (
+                <a href={featureSource.href} target="_blank" rel="noopener noreferrer">
+                  Data Source
+                </a>
+              )}
+              <small>Shapes are simplified</small>
             </div>
             <button type="button" aria-label="Close feature options" onClick={() => setFeaturePanel(null)}>×</button>
           </div>
-          {featureSource && (
-            <div className="topographic-data-source">
-              <span>
-                Data source:{" "}
-                <a href={featureSource.href} target="_blank" rel="noopener noreferrer">
-                  {featureSource.label}
-                </a>
-              </span>
-              <small>Shapes in this program are simplified from actual shapes.</small>
-            </div>
-          )}
           <label className="topographic-enable-all">
             <input
               ref={enableAllRef}
@@ -1963,12 +1975,17 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               {props.customPeakStorageError}
             </small>
           )}
+          <input className="topographic-feature-search" type="search"
+            aria-label={`Search ${featurePanelLabel.toLowerCase()}`}
+            placeholder={`Search ${featurePanelLabel.toLowerCase()}`}
+            value={featureSearchQuery}
+            onChange={(event) => setFeatureSearchQuery(event.target.value)} />
           <div className="topographic-feature-header" aria-hidden="true">
             <span />
             <div><span>View</span><span>Cut</span><span>More</span></div>
           </div>
           <div className="topographic-feature-list">
-            {props.topographicOptions[featurePanel].map((option) => {
+            {filteredFeatureOptions.length > 0 ? filteredFeatureOptions.map((option) => {
               const isVisible = props.topographicSelections[featurePanel].includes(option.id);
               const clipCategory: ClipFeatureCategory | null =
                 featurePanel === "counties" ||
@@ -2033,7 +2050,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                   )}
                 </div>
               );
-            })}
+            }) : featureOptionCount > 0 ? (
+              <small className="topographic-status">No features match your search.</small>
+            ) : null}
           </div>
           {featurePanel === "peaks" && (
             <button
@@ -2334,7 +2353,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                           setConnectOtherId(region.id);
                           setMoreActionError(null);
                         }} />
-                      <span><strong>{region.name}</strong><small>Polyline</small></span>
+                      <span><strong>{region.name}</strong><small>{regionTypeLabel(region)}</small></span>
                     </label>
                   ))}
                 </div>

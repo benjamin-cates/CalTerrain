@@ -103,6 +103,8 @@ type Gesture = {
 type PinchGesture = {
   pointerIds: [number, number];
   distance: number;
+  center: Position;
+  startCenter: Position;
 };
 
 type MapPoint = { position: Position; elevationKm: number };
@@ -711,10 +713,16 @@ export function App() {
         const first = touchPointersRef.current.get(pinch.pointerIds[0]);
         const second = touchPointersRef.current.get(pinch.pointerIds[1]);
         if (first && second) {
+          const nextCenter: Position = [
+            (first[0] + second[0]) / 2,
+            (first[1] + second[1]) / 2,
+          ];
           const nextDistance = Math.max(
             1,
             Math.hypot(second[0] - first[0], second[1] - first[1]),
           );
+          const deltaX = nextCenter[0] - pinch.center[0];
+          const deltaY = nextCenter[1] - pinch.center[1];
           const current = viewRef.current;
           syncView({
             ...current,
@@ -726,8 +734,17 @@ export function App() {
                 (pinch.distance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
               ),
             ),
+            azimuth: current.azimuth - deltaX * 0.005,
+            polar: Math.max(0, Math.min(1.42, current.polar - deltaY * 0.004)),
           });
           pinch.distance = nextDistance;
+          pinch.center = nextCenter;
+          if (Math.hypot(
+            nextCenter[0] - pinch.startCenter[0],
+            nextCenter[1] - pinch.startCenter[1],
+          ) > 4) {
+            setIsRightPanning(true);
+          }
           didDragRef.current = true;
         }
         return;
@@ -795,6 +812,7 @@ export function App() {
         pinchGestureRef.current = null;
         gestureRef.current = null;
         activeRegionDragIdRef.current = null;
+        setIsRightPanning(false);
         didDragRef.current = true;
         syncView(viewRef.current, true);
         return;
@@ -1027,6 +1045,10 @@ export function App() {
         const first = touchPointersRef.current.get(pointerIds[0] ?? -1);
         const second = touchPointersRef.current.get(pointerIds[1] ?? -1);
         if (pointerIds.length === 2 && first && second) {
+          const center: Position = [
+            (first[0] + second[0]) / 2,
+            (first[1] + second[1]) / 2,
+          ];
           gestureRef.current = null;
           pinchGestureRef.current = {
             pointerIds: [pointerIds[0]!, pointerIds[1]!],
@@ -1034,6 +1056,8 @@ export function App() {
               1,
               Math.hypot(second[0] - first[0], second[1] - first[1]),
             ),
+            center,
+            startCenter: center,
           };
           didDragRef.current = true;
           event.preventDefault();
