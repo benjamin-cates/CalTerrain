@@ -30,6 +30,7 @@ import type { MountainPeak } from "./mountains";
 import type { NewCustomMountainPeak } from "./terrain/useCustomMountainPeaks";
 import {
   connectPolylines,
+  clipPolylineToRegion,
   positionAtLineDistance,
   polylineLengthMeters,
   shiftPolygonStart,
@@ -137,6 +138,7 @@ type Props = {
   onConvertRegion: (regionId: string) => void;
   onConvertFeature: (category: TopographicFeatureCategory, id: string) => void;
   onTrimPolyline: (regionId: string, points: Position[]) => void;
+  onClipPolyline: (regionId: string, lines: Position[][]) => void;
   onConnectPolylines: (regionId: string, otherRegionId: string, points: Position[]) => void;
   onCombineRegions: (
     regionId: string,
@@ -186,6 +188,7 @@ type MorePage =
   | "sample"
   | "shift-start"
   | "trim"
+  | "clip"
   | "connect"
   | "union"
   | "intersection"
@@ -196,7 +199,7 @@ function regionTypeLabel(region: Region): string {
   if (region.type === "rectangle") return "Rectangle";
   if (region.type === "county") return "County";
   if (region.type === "point") return "Point";
-  return region.type === "polygon" ? "Polygon" : "Polyline";
+  return region.type === "polygon" ? "Polygon" : "Line";
 }
 
 function polylineEndPosition(points: Position[], end: PolylineEnd): Position | undefined {
@@ -623,8 +626,11 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   for (const region of shapeRegions) {
     const number = (regionCounts.get(region.type) ?? 0) + 1;
     regionCounts.set(region.type, number);
-    const typeLabel = `${region.type[0]?.toUpperCase()}${region.type.slice(1)}`;
-    regionLabels.set(region.id, `${typeLabel} ${number}`);
+    const typeLabel = regionTypeLabel(region);
+    regionLabels.set(
+      region.id,
+      region.isConverted ? `${typeLabel}: ${region.name}` : `${typeLabel} ${number}`,
+    );
   }
   const [scaleStep, setScaleStep] = useState(() => getTerrainExportScaleStep(1));
   const [featurePanel, setFeaturePanel] = useState<TopographicFeatureCategory | null>(null);
@@ -647,6 +653,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [trimStartMeters, setTrimStartMeters] = useState(0);
   const [trimEndMeters, setTrimEndMeters] = useState(0);
   const [connectOtherId, setConnectOtherId] = useState<string | null>(null);
+  const [clipRegionId, setClipRegionId] = useState<string | null>(null);
   const [combineOtherId, setCombineOtherId] = useState<string | null>(null);
   const [connectEnds, setConnectEnds] = useState<{
     current: PolylineEnd;
@@ -728,6 +735,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     ? shapeRegions.filter((region): region is Extract<Region, { type: "polyline" }> =>
       region.type === "polyline" && region.id !== moreRegion.id)
     : [];
+  const clipRegionCandidates = moreRegion?.type === "polyline"
+    ? shapeRegions.filter((region) =>
+      region.id !== moreRegion.id &&
+      region.type !== "point" &&
+      region.type !== "polyline"
+    )
+    : [];
+  const selectedClipRegion = clipRegionCandidates.find((region) => region.id === clipRegionId);
   const combineRegionCandidates = moreRegion &&
     (moreRegion.type === "polygon" || moreRegion.type === "ellipse" || moreRegion.type === "rectangle")
     ? shapeRegions.filter((region) =>
@@ -835,6 +850,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       setConnectEnds({ current: "end", other: "start" });
     } else if (page === "shift-start") {
       setPolygonStartIndex("1");
+    } else if (page === "clip") {
+      setClipRegionId(null);
     } else {
       setCombineOtherId(null);
     }
@@ -889,6 +906,25 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       closeMorePopup();
     } catch (error) {
       setMoreActionError(error instanceof Error ? error.message : "Could not trim the polyline.");
+    }
+  };
+  const applyPolylineClip = () => {
+    if (moreRegion?.type !== "polyline" || !props.center || !selectedClipRegion) return;
+    try {
+      const clippedLines = clipPolylineToRegion(
+        moreRegion.points,
+        selectedClipRegion,
+        props.center,
+      );
+      if (clippedLines.length === 0) {
+        throw new Error("The polyline does not intersect the selected region.");
+      }
+      props.onClipPolyline(moreRegion.id, clippedLines);
+      closeMorePopup();
+    } catch (error) {
+      setMoreActionError(
+        error instanceof Error ? error.message : "Could not clip the polyline to this region.",
+      );
     }
   };
   const applyConnection = () => {
@@ -1356,6 +1392,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         morePage === "shift-start" ||
         morePage === "sample" ||
         morePage === "trim" ||
+        morePage === "clip" ||
         morePage === "union" ||
         morePage === "intersection" ||
         morePage === "difference"
@@ -1407,6 +1444,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       morePage === "shift-start" ||
       morePage === "sample" ||
       morePage === "trim" ||
+      morePage === "clip" ||
       morePage === "union" ||
       morePage === "intersection" ||
       morePage === "difference";
@@ -1744,7 +1782,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           <button type="button" onClick={() => props.onAdd("ellipse")}>+ Circle</button>
           <button type="button" onClick={() => props.onAdd("rectangle")}>+ Rectangle</button>
           <button type="button" onClick={() => props.onAdd("polygon")}>+ Polygon</button>
-          <button type="button" onClick={() => props.onAdd("polyline")}>+ Polyline</button>
+          <button type="button" onClick={() => props.onAdd("polyline")}>+ Line</button>
         </div>
         {currentLocationError && (
           <small className="topographic-status is-error" role="alert">
@@ -2086,6 +2124,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                   closeMorePopup();
                 }}>Reverse</button>
                 <button type="button" onClick={() => openMorePage("trim")}>Trim start/end</button>
+                <button type="button" onClick={() => openMorePage("clip")}>Clip to region</button>
                 <button type="button" onClick={() => openMorePage("connect")}>Connect polylines</button>
               </>
             ) : moreRegion?.type === "polygon" ? (
@@ -2244,6 +2283,40 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                   trimStartMeters + trimEndMeters >= trimTotalMeters - 0.1
                 }
                 onClick={applyTrim}>Apply trim</button>
+            </div>
+          )}
+          {morePage === "clip" && moreRegion?.type === "polyline" && (
+            <div className="more-popup-tool">
+              <strong>Clip polyline to region</strong>
+              <p>Keep only the parts of this line inside the selected polygon, circle, or rectangle. Disconnected parts become separate polylines.</p>
+              {clipRegionCandidates.length > 0 ? (
+                <div className="more-popup-region-options" role="radiogroup"
+                  aria-label="Choose a clipping region">
+                  {clipRegionCandidates.map((region) => (
+                    <label className="more-popup-region-option" key={region.id}>
+                      <input type="radio" name="clip-polyline-region" value={region.id}
+                        checked={clipRegionId === region.id}
+                        onChange={() => {
+                          setClipRegionId(region.id);
+                          setMoreActionError(null);
+                        }} />
+                      <span>
+                        <strong>{region.name}</strong>
+                        <small>{regionTypeLabel(region)}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="more-popup-tool-note">
+                  Add another polygon, circle, or rectangle region before clipping this line.
+                </p>
+              )}
+              {moreActionError && <p className="more-popup-error" role="alert">{moreActionError}</p>}
+              <button type="button" className="more-popup-apply"
+                disabled={!selectedClipRegion} onClick={applyPolylineClip}>
+                Apply clipping
+              </button>
             </div>
           )}
           {morePage === "connect" && moreRegion?.type === "polyline" && (

@@ -3,6 +3,7 @@ import { fromLocal, toLocal } from "./geo";
 import {
   combineCustomRegions,
   connectPolylines,
+  clipPolylineToRegion,
   positionAtLineDistance,
   polylineLengthMeters,
   shiftPolygonStart,
@@ -84,6 +85,45 @@ describe("custom region operations", () => {
     expect(connected[1]?.[0]).toBeCloseTo(0, 5);
     expect(connected[2]?.[0]).toBeCloseTo(3, 5);
     expect(connected[3]?.[0]).toBeCloseTo(2, 5);
+  });
+
+  it("clips a polyline to a region boundary", () => {
+    const clipped = clipPolylineToRegion(
+      [local(-5, 5), local(15, 5)],
+      polygon("target", [[0, 0], [10, 0], [10, 10], [0, 10]]),
+      CENTER,
+    );
+    const coordinates = clipped.map(localPoints);
+
+    expect(coordinates).toHaveLength(1);
+    expect(coordinates[0]?.[0]?.[0]).toBeCloseTo(0, 4);
+    expect(coordinates[0]?.[1]?.[0]).toBeCloseTo(10, 4);
+    expect(coordinates[0]?.every(([, y]) => Math.abs(y - 5) < 1e-4)).toBe(true);
+  });
+
+  it("returns separate polylines when clipping produces disconnected parts", () => {
+    const clipped = clipPolylineToRegion(
+      [local(-2, 5), local(12, 5)],
+      polygon("u-shape", [
+        [0, 0], [10, 0], [10, 10], [7, 10], [7, 3], [3, 3], [3, 10], [0, 10],
+      ]),
+      CENTER,
+    );
+    const coordinates = clipped.map(localPoints);
+
+    expect(coordinates).toHaveLength(2);
+    expect(coordinates[0]?.[0]?.[0]).toBeCloseTo(0, 4);
+    expect(coordinates[0]?.at(-1)?.[0]).toBeCloseTo(3, 4);
+    expect(coordinates[1]?.[0]?.[0]).toBeCloseTo(7, 4);
+    expect(coordinates[1]?.at(-1)?.[0]).toBeCloseTo(10, 4);
+  });
+
+  it("returns no line when a polyline misses the clipping region", () => {
+    expect(clipPolylineToRegion(
+      [local(-5, 12), local(15, 12)],
+      polygon("target", [[0, 0], [10, 0], [10, 10], [0, 10]]),
+      CENTER,
+    )).toEqual([]);
   });
 
   it("returns the shared area for an intersection", () => {

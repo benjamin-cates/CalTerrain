@@ -201,6 +201,9 @@ export function MapDisplay(props: Props) {
                 <li><p>Embellish the map with custom, topological, or manmade features. Use "Cut" on regions to make it available for export.</p></li>
                 <li><p>Export the map as either GLB (3D model) or PNG (image).</p></li>
               </ol>
+              <section className="map-welcome-navigation">
+                <p>Click and drag with the left mouse button, or drag with one finger on a touchscreen. Right-button dragging rotates the view.</p>
+              </section>
               <p>Disclaimer: Data may not be complete or up-to-date. Many features are simplified lossily to improve performance. Elevation data is averaged over 30 m quadrants, so maximum or minimum elevations are not accurate.</p>
               <small>Click outside or press Escape to dismiss.</small>
             </section>

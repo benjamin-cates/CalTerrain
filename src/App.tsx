@@ -119,6 +119,7 @@ function createPieceRegions(
     name: pieces.length === 1 ? name : `${name} ${index + 1}`,
     type,
     points,
+    isConverted: true,
   }));
 }
 
@@ -1242,6 +1243,26 @@ export function App() {
         : region
     ));
   }, []);
+  const clipPolylineRegion = useCallback((regionId: string, lines: Position[][]) => {
+    const source = regions.find((region) => region.id === regionId);
+    if (source?.type !== "polyline" || lines.length === 0) return;
+    const replacements = lines.map((points, index): Region => ({
+      ...source,
+      id: index === 0 ? source.id : crypto.randomUUID(),
+      name: index === 0 ? source.name : `${source.name} (${index + 1})`,
+      points,
+    }));
+    setRegions((current) => {
+      const sourceIndex = current.findIndex((region) => region.id === regionId);
+      if (sourceIndex < 0 || current[sourceIndex]?.type !== "polyline") return current;
+      return [
+        ...current.slice(0, sourceIndex),
+        ...replacements,
+        ...current.slice(sourceIndex + 1),
+      ];
+    });
+    setSelectedRegionId(regionId);
+  }, [regions]);
   const connectPolylineRegions = useCallback((
     regionId: string,
     otherRegionId: string,
@@ -1500,6 +1521,7 @@ export function App() {
         name: option.label,
         type: "point",
         position: option.position,
+        isConverted: true,
       }];
     } else if (option.geometry) {
       converted = createPieceRegions(
@@ -1841,6 +1863,7 @@ export function App() {
           onConvertRegion={convertRegion}
           onConvertFeature={convertFeature}
           onTrimPolyline={trimPolylineRegion}
+          onClipPolyline={clipPolylineRegion}
           onConnectPolylines={connectPolylineRegions}
           onCombineRegions={combineRegions}
           onShapePreviewChange={updateShapeOperationPreview}

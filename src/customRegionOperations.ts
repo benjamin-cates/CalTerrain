@@ -4,6 +4,8 @@ import {
   union,
   type MultiPolygon,
 } from "polygon-clipping";
+import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
+import { point, polygon } from "@turf/helpers";
 import { fromLocal, toLocal } from "./geo";
 import { customRegionGeometries, measureLineGeometries } from "./featureAnalysis";
 import type { Position, Region } from "./types";
@@ -130,6 +132,152 @@ export function connectPolylines(
   return sameEndpoint
     ? [...orientedFirst, ...orientedSecond.slice(1)]
     : [...orientedFirst, ...orientedSecond];
+}
+
+function crossProduct(first: Position, second: Position): number {
+  return first[0] * second[1] - first[1] * second[0];
+}
+
+function segmentBoundaryParameters(
+  start: Position,
+  end: Position,
+  edgeStart: Position,
+  edgeEnd: Position,
+): number[] {
+  const direction: Position = [end[0] - start[0], end[1] - start[1]];
+  const edge: Position = [edgeEnd[0] - edgeStart[0], edgeEnd[1] - edgeStart[1]];
+  const offset: Position = [edgeStart[0] - start[0], edgeStart[1] - start[1]];
+  const denominator = crossProduct(direction, edge);
+  const directionLengthSquared = direction[0] ** 2 + direction[1] ** 2;
+  const epsilon = 1e-10;
+  if (directionLengthSquared <= epsilon) return [];
+
+  if (Math.abs(denominator) <= epsilon) {
+    if (Math.abs(crossProduct(offset, direction)) > epsilon) return [];
+    const endOffset: Position = [edgeEnd[0] - start[0], edgeEnd[1] - start[1]];
+    const first = (offset[0] * direction[0] + offset[1] * direction[1]) /
+      directionLengthSquared;
+    const second = (endOffset[0] * direction[0] + endOffset[1] * direction[1]) /
+      directionLengthSquared;
+    const low = Math.max(0, Math.min(first, second));
+    const high = Math.min(1, Math.max(first, second));
+    return high >= low - epsilon ? [low, high].map((value) => Math.max(0, Math.min(1, value))) : [];
+  }
+
+  const parameter = crossProduct(offset, edge) / denominator;
+  const edgeParameter = crossProduct(offset, direction) / denominator;
+  if (
+    parameter < -epsilon || parameter > 1 + epsilon ||
+    edgeParameter < -epsilon || edgeParameter > 1 + epsilon
+  ) return [];
+  return [Math.max(0, Math.min(1, parameter))];
+}
+
+function samePosition(first: Position, second: Position): boolean {
+  return Math.hypot(first[0] - second[0], first[1] - second[1]) <= 1e-8;
+}
+
+export function clipPolylineToRegion(
+  points: Position[],
+  region: Region,
+  center: Position,
+): Position[][] {
+  if (points.length < 2) throw new Error("A polyline needs at least two points to clip.");
+  if (
+    region.type === "point" ||
+    region.type === "county" ||
+    region.type === "polyline"
+  ) {
+    throw new Error("Choose a polygon, circle, or rectangle region to clip the line.");
+  }
+
+  const targetPolygons = customRegionGeometries(region, center).flatMap((geometry) => {
+    if (geometry.type === "Polygon") {
+      return [geometry.coordinates.map((ring) => ring.map((position) => toLocal(position, center)))];
+    }
+    if (geometry.type === "MultiPolygon") {
+      return geometry.coordinates.map((coordinates) =>
+        coordinates.map((ring) => ring.map((position) => toLocal(position, center)))
+      );
+    }
+    return [];
+  });
+  if (targetPolygons.length === 0) {
+    throw new Error("The selected region does not have a clipping boundary.");
+  }
+
+  const polygonFeatures = targetPolygons.map((coordinates) => polygon(coordinates));
+  const localPoints = localPath(points, center);
+  const clipped: Position[][] = [];
+  let current: Position[] = [];
+  const flush = () => {
+    if (current.length >= 2) clipped.push(current);
+    current = [];
+  };
+  const append = (position: Position) => {
+    if (!current.at(-1) || !samePosition(current.at(-1)!, position)) {
+      current.push(position);
+    }
+  };
+
+  for (let index = 1; index < localPoints.length; index += 1) {
+    const start = localPoints[index - 1];
+    const end = localPoints[index];
+    if (!start || !end) continue;
+
+    const parameters = [0, 1];
+    for (const coordinates of targetPolygons) {
+      for (const ring of coordinates) {
+        for (let edgeIndex = 1; edgeIndex < ring.length; edgeIndex += 1) {
+          const edgeStart = ring[edgeIndex - 1];
+          const edgeEnd = ring[edgeIndex];
+          if (edgeStart && edgeEnd) {
+            parameters.push(...segmentBoundaryParameters(start, end, edgeStart, edgeEnd));
+          }
+        }
+      }
+    }
+    parameters.sort((first, second) => first - second);
+    const uniqueParameters = parameters.filter((parameter, parameterIndex) =>
+      parameterIndex === 0 || Math.abs(parameter - (parameters[parameterIndex - 1] ?? 0)) > 1e-9
+    );
+
+    for (let intervalIndex = 1; intervalIndex < uniqueParameters.length; intervalIndex += 1) {
+      const startParameter = uniqueParameters[intervalIndex - 1];
+      const endParameter = uniqueParameters[intervalIndex];
+      if (startParameter === undefined || endParameter === undefined ||
+        endParameter - startParameter <= 1e-10) continue;
+      const midpointParameter = (startParameter + endParameter) / 2;
+      const midpoint: Position = [
+        start[0] + (end[0] - start[0]) * midpointParameter,
+        start[1] + (end[1] - start[1]) * midpointParameter,
+      ];
+      const inside = polygonFeatures.some((feature) =>
+        booleanPointInPolygon(point(midpoint), feature)
+      );
+      if (!inside) {
+        flush();
+        continue;
+      }
+
+      const intervalStart: Position = [
+        start[0] + (end[0] - start[0]) * startParameter,
+        start[1] + (end[1] - start[1]) * startParameter,
+      ];
+      const intervalEnd: Position = [
+        start[0] + (end[0] - start[0]) * endParameter,
+        start[1] + (end[1] - start[1]) * endParameter,
+      ];
+      if (current.length > 0 && samePosition(current.at(-1)!, intervalStart)) {
+        append(intervalEnd);
+      } else {
+        flush();
+        current = [intervalStart, intervalEnd];
+      }
+    }
+  }
+  flush();
+  return clipped.map((line) => line.map((position) => fromLocal(position, center)));
 }
 
 function closeRing(points: Position[]): Position[] {

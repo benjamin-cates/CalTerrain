@@ -103,7 +103,13 @@ export type ViewSettings = {
   sunElevation: number;
 };
 
-type RegionBase = { id: string; name: string; visible?: boolean; clip?: boolean };
+type RegionBase = {
+  id: string;
+  name: string;
+  visible?: boolean;
+  clip?: boolean;
+  isConverted?: boolean;
+};
 export type Region =
   | (RegionBase & {
       type: "ellipse" | "rectangle";
