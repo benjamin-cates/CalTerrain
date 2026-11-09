@@ -105,6 +105,9 @@ type PinchGesture = {
   distance: number;
   center: Position;
   startCenter: Position;
+  startDistance: number;
+  startPositions: [Position, Position];
+  mode: "pan" | "zoom" | null;
 };
 
 type MapPoint = { position: Position; elevationKm: number };
@@ -494,6 +497,7 @@ export function App() {
   const [nearbyShapes, setNearbyShapes] = useState<NearbyShapes | null>(null);
   const [isRightPanning, setIsRightPanning] = useState(false);
   const [terrainVisible, setTerrainVisible] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [canvasAspect, setCanvasAspect] = useState(1.5);
   const [canvasWidth, setCanvasWidth] = useState(1);
@@ -721,30 +725,69 @@ export function App() {
             1,
             Math.hypot(second[0] - first[0], second[1] - first[1]),
           );
-          const deltaX = nextCenter[0] - pinch.center[0];
-          const deltaY = nextCenter[1] - pinch.center[1];
-          const current = viewRef.current;
-          syncView({
-            ...current,
-            distance: Math.max(
-              10,
-              Math.min(
-                4_000,
-                current.distance *
-                (pinch.distance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
+          const wasPending = pinch.mode === null;
+          if (wasPending) {
+            const firstDelta: Position = [
+              first[0] - pinch.startPositions[0][0],
+              first[1] - pinch.startPositions[0][1],
+            ];
+            const secondDelta: Position = [
+              second[0] - pinch.startPositions[1][0],
+              second[1] - pinch.startPositions[1][1],
+            ];
+            const firstTravel = Math.hypot(...firstDelta);
+            const secondTravel = Math.hypot(...secondDelta);
+            const centerTravel = Math.hypot(
+              nextCenter[0] - pinch.startCenter[0],
+              nextCenter[1] - pinch.startCenter[1],
+            );
+            const distanceChange = Math.abs(nextDistance - pinch.startDistance);
+
+            if (firstTravel > 4 && secondTravel > 4) {
+              const movementAgreement =
+                firstDelta[0] * secondDelta[0] + firstDelta[1] * secondDelta[1];
+              pinch.mode = movementAgreement === 0
+                ? (centerTravel >= distanceChange ? "pan" : "zoom")
+                : movementAgreement > 0 ? "pan" : "zoom";
+            } else if (Math.max(firstTravel, secondTravel) > 12) {
+              pinch.mode = centerTravel >= distanceChange ? "pan" : "zoom";
+            }
+          }
+
+          if (pinch.mode === "pan") {
+            const deltaX = nextCenter[0] -
+              (wasPending ? pinch.startCenter[0] : pinch.center[0]);
+            const deltaY = nextCenter[1] -
+              (wasPending ? pinch.startCenter[1] : pinch.center[1]);
+            const current = viewRef.current;
+            syncView({
+              ...current,
+              azimuth: current.azimuth - deltaX * 0.005,
+              polar: Math.max(0, Math.min(1.42, current.polar - deltaY * 0.004)),
+            });
+            if (Math.hypot(
+              nextCenter[0] - pinch.startCenter[0],
+              nextCenter[1] - pinch.startCenter[1],
+            ) > 4) {
+              setIsRightPanning(true);
+            }
+          } else if (pinch.mode === "zoom") {
+            const previousDistance = wasPending ? pinch.startDistance : pinch.distance;
+            const current = viewRef.current;
+            syncView({
+              ...current,
+              distance: Math.max(
+                10,
+                Math.min(
+                  4_000,
+                  current.distance *
+                  (previousDistance / nextDistance) ** PINCH_ZOOM_SENSITIVITY,
+                ),
               ),
-            ),
-            azimuth: current.azimuth - deltaX * 0.005,
-            polar: Math.max(0, Math.min(1.42, current.polar - deltaY * 0.004)),
-          });
+            });
+          }
           pinch.distance = nextDistance;
           pinch.center = nextCenter;
-          if (Math.hypot(
-            nextCenter[0] - pinch.startCenter[0],
-            nextCenter[1] - pinch.startCenter[1],
-          ) > 4) {
-            setIsRightPanning(true);
-          }
           didDragRef.current = true;
         }
         return;
@@ -1049,15 +1092,23 @@ export function App() {
             (first[0] + second[0]) / 2,
             (first[1] + second[1]) / 2,
           ];
+          const startPositions: [Position, Position] = [
+            [first[0], first[1]],
+            [second[0], second[1]],
+          ];
+          const distance = Math.max(
+            1,
+            Math.hypot(second[0] - first[0], second[1] - first[1]),
+          );
           gestureRef.current = null;
           pinchGestureRef.current = {
             pointerIds: [pointerIds[0]!, pointerIds[1]!],
-            distance: Math.max(
-              1,
-              Math.hypot(second[0] - first[0], second[1] - first[1]),
-            ),
+            distance,
             center,
             startCenter: center,
+            startDistance: distance,
+            startPositions,
+            mode: null,
           };
           didDragRef.current = true;
           event.preventDefault();
@@ -1840,9 +1891,18 @@ export function App() {
           }))}>
           Units: {settings.measurementSystem === "metric" ? "Metric" : "Imperial"}
         </button>
+        <button type="button" className="mobile-sidebar-toggle"
+          aria-label={mobileSidebarOpen ? "Hide map controls" : "Show map controls"}
+          aria-controls="map-controls-sidebar"
+          aria-expanded={mobileSidebarOpen}
+          onClick={() => setMobileSidebarOpen((open) => !open)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
       </header>
 
-      <section className="workspace">
+      <section className={`workspace${mobileSidebarOpen ? " is-mobile-sidebar-open" : ""}`}>
         <Sidebar settings={settings} onSettingsChange={setSettings}
           regions={displayRegions} center={dataset?.metadata.center ?? null}
           selectedId={selectedRegionId}

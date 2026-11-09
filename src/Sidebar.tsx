@@ -1653,7 +1653,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     })()
     : undefined;
   return (
-    <aside ref={sidebarRef} className="sidebar controls-sidebar" aria-label="Map controls">
+    <aside id="map-controls-sidebar" ref={sidebarRef} className="sidebar controls-sidebar" aria-label="Map controls">
       {props.nearbyShapes && (
         <div
           ref={nearbyShapesRef}
@@ -1703,6 +1703,23 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           })}
         </div>
       )}
+      <div className="mobile-sidebar-settings">
+        <label>
+          <span>Vertical exaggeration <strong>{settings.exaggeration.toFixed(1)}×</strong></span>
+          <input type="range" aria-label={`Vertical exaggeration ${settings.exaggeration.toFixed(1)}×`}
+            min="1" max="10" step="0.1" value={settings.exaggeration}
+            onChange={(event) => setSetting("exaggeration", Number(event.target.value))} />
+        </label>
+        <button type="button"
+          aria-label={`Switch to ${settings.measurementSystem === "metric" ? "imperial" : "metric"} units`}
+          aria-pressed={settings.measurementSystem === "imperial"}
+          onClick={() => setSetting(
+            "measurementSystem",
+            settings.measurementSystem === "metric" ? "imperial" : "metric",
+          )}>
+          Units: {settings.measurementSystem === "metric" ? "Metric" : "Imperial"}
+        </button>
+      </div>
       <details className="control-section" open>
         <summary>Lighting</summary>
         <div className="height-palette-options emissive-palette-options" role="group" aria-label="Terrain emissive color">
