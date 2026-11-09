@@ -13,7 +13,7 @@ import type { Texture } from "three";
 import { toLocal, WORLD_METERS } from "./geo";
 import { regionGeometry } from "./regions";
 import type { RegionHandle } from "./regions";
-import type { MountainPeak } from "./mountains";
+import { MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM, type MountainPeak } from "./mountains";
 import {
   sampleTerrainMeshElevation,
   TERRAIN_TILE_MESH_SEGMENTS,
@@ -50,7 +50,6 @@ type LineBounds = { minX: number; minZ: number; maxX: number; maxZ: number };
 const lineBoundsCache = new WeakMap<Position[][], LineBounds[]>();
 const MAX_ROUTE_SHIELD_SIZE_KM = 2.5;
 const ROUTE_SHIELD_SIZE_PER_DISTANCE = 0.02;
-const MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM = 125;
 const MOUNTAIN_LABEL_HEIGHT_PER_DISTANCE = 0.02;
 const MAX_MOUNTAIN_LABEL_HEIGHT_KM = 3;
 const shieldTextures = new Map<string, CanvasTexture>();

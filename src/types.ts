@@ -55,8 +55,19 @@ export type TopographicFeatureOption = {
   geometry?: FeatureGeometry;
   lines?: Position[][];
   position?: Position;
+  elevationMeters?: number;
   prominenceMeters?: number;
   isolationKm?: number;
+};
+
+export type NearbyShapeTarget =
+  | { kind: "region"; id: string }
+  | { kind: "feature"; category: TopographicFeatureCategory; id: string };
+export type NearbyShapeItem = { target: NearbyShapeTarget; label: string };
+export type NearbyShapes = {
+  clientX: number;
+  clientY: number;
+  items: NearbyShapeItem[];
 };
 
 export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelections = {

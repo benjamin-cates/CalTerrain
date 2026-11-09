@@ -1422,6 +1422,65 @@ h1 em {
   width: min(390px, calc(100vw - 16px));
 }
 
+.nearby-shapes-list {
+  position: fixed;
+  z-index: 26;
+  display: grid;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
+  max-height: min(360px, calc(100dvh - 16px));
+  gap: 5px;
+  overflow: auto;
+  padding: 9px;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: #151c1a;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+}
+
+.nearby-shapes-list > strong {
+  padding: 1px 3px 5px;
+  color: #e8f4dc;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nearby-shape-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px;
+  border-top: 1px solid var(--line);
+}
+
+.nearby-shape-item > span {
+  overflow: hidden;
+  color: #fff;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nearby-shape-item > button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 4px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.1);
+  color: #e8f4dc;
+}
+
+.nearby-shape-item > button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 .more-popup-header-actions {
   display: flex;
   flex: 0 0 auto;

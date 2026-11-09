@@ -11,6 +11,8 @@ export type MountainPeak = {
   custom?: boolean;
 };
 
+export const MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM = 125;
+
 export function parseMountainTsv(contents: string): MountainPeak[] {
   const rows = contents.replace(/^\uFEFF/, "").trim().split(/\r?\n/);
   const headers = rows[0]?.split("\t").map((header) => header.trim());

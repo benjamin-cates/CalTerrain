@@ -2,6 +2,7 @@ import {
   useCallback,
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -65,6 +66,7 @@ import type {
   Position,
   Region,
   RegionOverlayPreview,
+  NearbyShapes,
   FeatureGeometry,
   ClipFeatureCategory,
   ClipFeatureSelections,
@@ -144,6 +146,9 @@ type Props = {
   onShapePreviewChange: (preview: RegionOverlayPreview | null) => void;
   onFocusRegion: (regionId: string) => void;
   onFocusFeature: (category: TopographicFeatureCategory, id: string) => void;
+  nearbyShapes: NearbyShapes | null;
+  onDismissNearbyShapes: () => void;
+  activeRegionDragIdRef: { current: string | null };
   onCreateElevationPoint: (
     geometries: FeatureGeometry[],
     lines: Position[][],
@@ -628,6 +633,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [morePosition, setMorePosition] = useState({ top: 16, left: 320 });
   const [morePage, setMorePage] = useState<MorePage | null>(null);
   const [moreActionError, setMoreActionError] = useState<string | null>(null);
+  const [nearbyListLeft, setNearbyListLeft] = useState<number | null>(null);
   const [samplePercent, setSamplePercent] = useState(50);
   const [sampleElevationMeters, setSampleElevationMeters] = useState<number | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
@@ -670,6 +676,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const featurePanelRef = useRef<HTMLDivElement>(null);
   const featurePanelButtonRef = useRef<HTMLButtonElement>(null);
   const morePopupRef = useRef<HTMLDivElement>(null);
+  const nearbyShapesRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
   const extremumRequestRef = useRef(0);
   const sampleRequestRef = useRef(0);
   const profileRequestRef = useRef(0);
@@ -1063,7 +1071,12 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     if (region.type === "polygon") addPolygonPoint(region);
     else props.onAppendPolylinePoint(region.id);
   };
-  const toggleMorePopup = (target: MoreTarget, button: HTMLButtonElement) => {
+  const toggleMorePopup = (
+    target: MoreTarget,
+    button: HTMLButtonElement,
+    adjacentToSidebar = false,
+    preferredTop?: number,
+  ) => {
     const sameTarget = moreTarget?.kind === target.kind &&
       moreTarget.id === target.id &&
       (moreTarget.kind !== "feature" || target.kind !== "feature" ||
@@ -1078,9 +1091,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     setMorePage(null);
     setMoreActionError(null);
     const bounds = button.getBoundingClientRect();
+    const sidebarBounds = sidebarRef.current?.getBoundingClientRect();
     setMorePosition({
-      top: Math.max(8, Math.min(bounds.top, window.innerHeight - 360)),
-      left: Math.max(8, Math.min(bounds.right + 8, window.innerWidth - 350)),
+      top: Math.max(8, Math.min(preferredTop ?? bounds.top, window.innerHeight - 360)),
+      left: Math.max(8, Math.min(
+        adjacentToSidebar && sidebarBounds ? sidebarBounds.right + 8 : bounds.right + 8,
+        window.innerWidth - 350,
+      )),
     });
     moreTriggerRef.current = button;
     setMoreTarget(target);
@@ -1332,6 +1349,10 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         moreTriggerRef.current?.contains(target)
       ) return;
       if (
+        moreTarget?.kind === "region" &&
+        props.activeRegionDragIdRef.current === moreTarget.id
+      ) return;
+      if (
         morePage === "shift-start" ||
         morePage === "sample" ||
         morePage === "trim" ||
@@ -1350,7 +1371,36 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [morePage, moreTarget]);
+  }, [morePage, moreTarget, props.activeRegionDragIdRef]);
+  useEffect(() => {
+    if (!props.nearbyShapes) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && nearbyShapesRef.current?.contains(target)) return;
+      props.onDismissNearbyShapes();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") props.onDismissNearbyShapes();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [props.nearbyShapes, props.onDismissNearbyShapes]);
+  useLayoutEffect(() => {
+    if (!props.nearbyShapes || !nearbyShapesRef.current) {
+      setNearbyListLeft(null);
+      return;
+    }
+    const width = nearbyShapesRef.current.getBoundingClientRect().width;
+    const left = Math.max(
+      8,
+      Math.min(props.nearbyShapes.clientX + 10, window.innerWidth - width - 8),
+    );
+    setNearbyListLeft((current) => current === left ? current : left);
+  }, [props.nearbyShapes]);
   useEffect(() => {
     if (!moreTarget) return;
     const operationPageIsOpen =
@@ -1360,7 +1410,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       morePage === "union" ||
       morePage === "intersection" ||
       morePage === "difference";
-    if (!operationPageIsOpen && props.selectedId !== moreTarget.selectedIdAtOpen) {
+    const selectedTargetRegion = moreTarget.kind === "region" &&
+      props.selectedId === moreTarget.id;
+    if (
+      !operationPageIsOpen &&
+      props.selectedId !== moreTarget.selectedIdAtOpen &&
+      !selectedTargetRegion
+    ) {
       setMoreTarget(null);
       return;
     }
@@ -1527,8 +1583,73 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       if (request === sampleRequestRef.current) sampleRequestRef.current += 1;
     };
   }, [morePage, props.onSampleElevation, samplePosition]);
+  const nearbyListStyle: CSSProperties | undefined = props.nearbyShapes
+    ? (() => {
+      const top = Math.max(8, Math.min(
+        props.nearbyShapes.clientY + 10,
+        window.innerHeight - 120,
+      ));
+      return {
+        top,
+        left: Math.max(8, Math.min(
+          nearbyListLeft ?? props.nearbyShapes.clientX + 10,
+          nearbyListLeft ?? window.innerWidth - 316,
+        )),
+        maxHeight: Math.min(360, Math.max(0, window.innerHeight - top - 8)),
+      };
+    })()
+    : undefined;
   return (
-    <aside className="sidebar controls-sidebar" aria-label="Map controls">
+    <aside ref={sidebarRef} className="sidebar controls-sidebar" aria-label="Map controls">
+      {props.nearbyShapes && (
+        <div
+          ref={nearbyShapesRef}
+          className="nearby-shapes-list"
+          role="dialog"
+          aria-label="Nearby map shapes"
+          style={nearbyListStyle}>
+          <strong>Nearby</strong>
+          {props.nearbyShapes.items.map((item) => {
+            const key = item.target.kind === "region"
+              ? `region:${item.target.id}`
+              : `feature:${item.target.category}:${item.target.id}`;
+            return (
+              <div className="nearby-shape-item" key={key}>
+                <span title={item.label}>{item.label}</span>
+                <button type="button" aria-label={`Options for ${item.label}`}
+                  title={`Options for ${item.label}`}
+                  onClick={(event) => {
+                    const target: MoreTarget = item.target.kind === "region"
+                      ? {
+                        kind: "region",
+                        id: item.target.id,
+                        selectedIdAtOpen: props.selectedId,
+                      }
+                      : {
+                        kind: "feature",
+                        category: item.target.category,
+                        id: item.target.id,
+                        selectedIdAtOpen: props.selectedId,
+                      };
+                    toggleMorePopup(
+                      target,
+                      event.currentTarget,
+                      true,
+                      props.nearbyShapes?.clientY,
+                    );
+                    props.onDismissNearbyShapes();
+                  }}>
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <circle cx="8" cy="3" r="1.25" />
+                    <circle cx="8" cy="8" r="1.25" />
+                    <circle cx="8" cy="13" r="1.25" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <details className="control-section" open>
         <summary>Lighting</summary>
         <div className="height-palette-options emissive-palette-options" role="group" aria-label="Terrain emissive color">

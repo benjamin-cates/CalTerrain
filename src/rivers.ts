@@ -79,3 +79,76 @@ export function getRiverFeatureOptions(
       : feature.geometry.coordinates,
   }));
 }
+
+type EndpointSide = "start" | "end";
+type LineEndpoint = { pathIndex: number; side: EndpointSide };
+type PathConnections = { start: LineEndpoint | null; end: LineEndpoint | null };
+
+function endpointKey(position: Position): string {
+  return `${position[0]},${position[1]}`;
+}
+
+export function mergeRiverLinePaths(lines: Position[][]): Position[][] {
+  const paths = lines.filter((line) => line.length >= 2);
+  const endpoints = new Map<string, LineEndpoint[]>();
+  const connections: PathConnections[] = paths.map(() => ({ start: null, end: null }));
+
+  paths.forEach((line, pathIndex) => {
+    for (const side of ["start", "end"] as const) {
+      const position = side === "start" ? line[0] : line.at(-1);
+      if (!position) continue;
+      const key = endpointKey(position);
+      const matches = endpoints.get(key) ?? [];
+      matches.push({ pathIndex, side });
+      endpoints.set(key, matches);
+    }
+  });
+
+  for (const matches of endpoints.values()) {
+    if (matches.length !== 2 || matches[0]?.pathIndex === matches[1]?.pathIndex) continue;
+    const [first, second] = matches;
+    if (!first || !second) continue;
+    const firstConnections = connections[first.pathIndex];
+    const secondConnections = connections[second.pathIndex];
+    if (!firstConnections || !secondConnections) continue;
+    firstConnections[first.side] = second;
+    secondConnections[second.side] = first;
+  }
+
+  const merged: Position[][] = [];
+  const consumed = new Set<number>();
+  const pathOrder = paths.map((_, index) => index).sort((first, second) => {
+    const firstConnections = connections[first];
+    const secondConnections = connections[second];
+    const firstIsOpen = firstConnections && (!firstConnections.start || !firstConnections.end);
+    const secondIsOpen = secondConnections && (!secondConnections.start || !secondConnections.end);
+    return Number(secondIsOpen) - Number(firstIsOpen);
+  });
+  for (const pathIndex of pathOrder) {
+    if (consumed.has(pathIndex)) continue;
+    const path = paths[pathIndex];
+    const pathConnections = connections[pathIndex];
+    if (!path || !pathConnections) continue;
+
+    const startSide: EndpointSide = pathConnections.start ? "end" : "start";
+    let points = startSide === "start" ? [...path] : [...path].reverse();
+    let currentIndex = pathIndex;
+    let exitSide: EndpointSide = startSide === "start" ? "end" : "start";
+    consumed.add(pathIndex);
+
+    while (true) {
+      const next = connections[currentIndex]?.[exitSide];
+      if (!next || consumed.has(next.pathIndex)) break;
+      const nextPath = paths[next.pathIndex];
+      if (!nextPath) break;
+      const orientedPath = next.side === "start" ? nextPath : [...nextPath].reverse();
+      points = [...points, ...orientedPath.slice(1)];
+      consumed.add(next.pathIndex);
+      currentIndex = next.pathIndex;
+      exitSide = next.side === "start" ? "end" : "start";
+    }
+
+    merged.push(points);
+  }
+  return merged;
+}

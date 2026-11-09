@@ -1,5 +1,3 @@
-import booleanPointInPolygon from "@turf/boolean-point-in-polygon";
-import { point } from "@turf/helpers";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { Camera, Plane, Raycaster, Vector2, Vector3 } from "three";
 import {
@@ -22,6 +20,7 @@ import {
   linePiecesFromGeometries,
   polygonPiecesFromGeometries,
 } from "./featureAnalysis";
+import { distanceToLineSegments, geometryContainsPosition } from "./nearbyShapes";
 import { combineCustomRegions, type PolygonOperation } from "./customRegionOperations";
 import {
   COMBINED_IMAGE_PREVIEW_ID,
@@ -36,6 +35,7 @@ import {
   type Position,
   type Region,
   type RegionOverlayPreview,
+  type NearbyShapes,
   type TopographicFeatureCategory,
   type TopographicFeatureOption,
   type TopographicFeatureSelections,
@@ -48,7 +48,7 @@ import { getHighwayRouteLines, getHighwayRouteNumbers } from "./highways";
 import { useHighwayData } from "./terrain/useHighwayData";
 import { getRailwayFeatureOptions } from "./railways";
 import { useRailwayData } from "./terrain/useRailwayData";
-import { getRiverFeatureOptions } from "./rivers";
+import { getRiverFeatureOptions, mergeRiverLinePaths } from "./rivers";
 import { useRiverData } from "./terrain/useRiverData";
 import { useMountainData } from "./terrain/useMountainData";
 import { useCustomMountainPeaks } from "./terrain/useCustomMountainPeaks";
@@ -58,7 +58,10 @@ import {
   findTerrainElevationExtremum,
   type ElevationExtremum,
 } from "./terrain/elevationAnalysis";
-import type { MountainPeak } from "./mountains";
+import {
+  MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM,
+  type MountainPeak,
+} from "./mountains";
 import { MapDisplay } from "./MapDisplay";
 import { Sidebar } from "./Sidebar";
 import {
@@ -101,6 +104,8 @@ type PinchGesture = {
   pointerIds: [number, number];
   distance: number;
 };
+
+type MapPoint = { position: Position; elevationKm: number };
 
 const PINCH_ZOOM_SENSITIVITY = 2.625;
 
@@ -314,6 +319,7 @@ export function App() {
         ].filter(Boolean).join(" · "),
         custom: peak.custom,
         position: peak.position,
+        elevationMeters: peak.elevationMeters,
         prominenceMeters: peak.prominenceMeters,
         isolationKm: peak.isolationKm,
       })),
@@ -482,6 +488,7 @@ export function App() {
     });
   }, []);
   const [placingCustomPoint, setPlacingCustomPoint] = useState(false);
+  const [nearbyShapes, setNearbyShapes] = useState<NearbyShapes | null>(null);
   const [isRightPanning, setIsRightPanning] = useState(false);
   const [terrainVisible, setTerrainVisible] = useState(true);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
@@ -499,12 +506,18 @@ export function App() {
   const regionsRef = useRef(regions);
   const regionHandlesRef = useRef<RegionHandle[]>([]);
   const gestureRef = useRef<Gesture | null>(null);
+  const activeRegionDragIdRef = useRef<string | null>(null);
   const touchPointersRef = useRef(new Map<number, Position>());
   const pinchGestureRef = useRef<PinchGesture | null>(null);
   const didDragRef = useRef(false);
   const placingCustomPointRef = useRef(false);
   const terrainRaycastRef = useRef<TerrainRaycast | null>(null);
-  const selectMapPointRef = useRef<(mercatorPoint: Position) => void>(() => { });
+  const selectMapPointRef = useRef<(
+    mercatorPoint: Position,
+    clientX: number,
+    clientY: number,
+    surfaceElevationKm: number,
+  ) => void>(() => { });
   const placeCustomPointRef = useRef<(position: Position) => void>(() => { });
   const mapRaycaster = useMemo(() => new Raycaster(), []);
   const mapPointer = useMemo(() => new Vector2(), []);
@@ -628,7 +641,8 @@ export function App() {
     clientX: number,
     clientY: number,
     matchTerrain = false,
-  ): Position | null => {
+    requireTerrainHit = false,
+  ): MapPoint | null => {
     const stage = stageRef.current;
     const camera = cameraRef.current;
     if (!stage || !camera) return null;
@@ -641,7 +655,11 @@ export function App() {
     );
     mapRaycaster.setFromCamera(mapPointer, camera);
     const intersection = mapRaycaster.ray.intersectPlane(mapPlane, mapIntersection);
-    if (!matchTerrain) return intersection ? [intersection.x, intersection.z] : null;
+    if (!matchTerrain) {
+      return intersection
+        ? { position: [intersection.x, intersection.z], elevationKm: 0.1 }
+        : null;
+    }
 
     const { origin, direction } = mapRaycaster.ray;
     const terrainRay: TerrainRay = {
@@ -649,8 +667,13 @@ export function App() {
       direction: [direction.x, direction.y, direction.z],
     };
     const terrainHit = terrainRaycastRef.current?.(terrainRay, settings.exaggeration) ?? null;
-    if (terrainHit) return terrainHit.position;
-    return intersection ? [intersection.x, intersection.z] : null;
+    if (terrainHit) {
+      return { position: terrainHit.position, elevationKm: terrainHit.elevationKm };
+    }
+    if (requireTerrainHit) return null;
+    return intersection
+      ? { position: [intersection.x, intersection.z], elevationKm: 0.1 }
+      : null;
   }, [mapIntersection, mapPlane, mapPointer, mapRaycaster, settings.exaggeration]);
 
   useEffect(() => {
@@ -726,7 +749,7 @@ export function App() {
         if (position && data) {
           const handle = gesture.handle;
           setRegions((current) => current.map((region) =>
-            moveRegionHandle(region, handle, position, data.metadata.center),
+            moveRegionHandle(region, handle, position.position, data.metadata.center),
           ));
         }
         return;
@@ -770,21 +793,30 @@ export function App() {
       if (pinch?.pointerIds.includes(event.pointerId)) {
         pinchGestureRef.current = null;
         gestureRef.current = null;
+        activeRegionDragIdRef.current = null;
         didDragRef.current = true;
         syncView(viewRef.current, true);
         return;
       }
       const gesture = gestureRef.current;
-      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      if (!gesture || gesture.pointerId !== event.pointerId) {
+        activeRegionDragIdRef.current = null;
+        return;
+      }
       if (gesture.button === 2) setIsRightPanning(false);
       if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 4) {
         didDragRef.current = true;
       }
       if (event.type === "pointerup" && gesture.button === 0 && !gesture.handle && !didDragRef.current) {
-        const position = pointOnMap(event.clientX, event.clientY, gesture.placingPoint);
+        const position = pointOnMap(
+          event.clientX,
+          event.clientY,
+          true,
+          !gesture.placingPoint,
+        );
         if (gesture.placingPoint) {
           if (position && placingCustomPointRef.current) {
-            placeCustomPointRef.current(position);
+            placeCustomPointRef.current(position.position);
             placingCustomPointRef.current = false;
             setPlacingCustomPoint(false);
           }
@@ -792,13 +824,14 @@ export function App() {
           const data = datasetRef.current;
           if (data) {
             selectMapPointRef.current([
-              data.metadata.center[0] + position[0] * 1_000,
-              data.metadata.center[1] - position[1] * 1_000,
-            ]);
+              data.metadata.center[0] + position.position[0] * 1_000,
+              data.metadata.center[1] - position.position[1] * 1_000,
+            ], event.clientX, event.clientY, position.elevationKm);
           }
         }
       }
       gestureRef.current = null;
+      activeRegionDragIdRef.current = null;
       syncView(viewRef.current, true);
     };
 
@@ -812,6 +845,7 @@ export function App() {
       touchPointersRef.current.clear();
       pinchGestureRef.current = null;
       gestureRef.current = null;
+      activeRegionDragIdRef.current = null;
       if (wheelSyncTimerRef.current !== null) {
         window.clearTimeout(wheelSyncTimerRef.current);
         wheelSyncTimerRef.current = null;
@@ -819,28 +853,168 @@ export function App() {
     };
   }, [pointOnMap, syncView]);
 
-  const selectMapPoint = useCallback(
-    (mercatorPoint: Position) => {
-      if (!dataset || didDragRef.current) return;
-      const [longitude, latitude] = mercatorToGeographic(mercatorPoint[0], mercatorPoint[1]);
-      const insideCalifornia = dataset.state.features.some((feature) =>
-        booleanPointInPolygon(
-          point([longitude, latitude]),
-          feature as Parameters<typeof booleanPointInPolygon>[1],
-        ),
-      );
-      if (!insideCalifornia) {
-        return;
-      }
-      const target: Position = [
-        (mercatorPoint[0] - dataset.metadata.center[0]) / 1_000,
-        -(mercatorPoint[1] - dataset.metadata.center[1]) / 1_000,
+  const selectMapPoint = useCallback((
+    mercatorPoint: Position,
+    clientX: number,
+    clientY: number,
+    surfaceElevationKm: number,
+  ) => {
+    if (!dataset || didDragRef.current) return;
+    const camera = cameraRef.current;
+    const stage = stageRef.current;
+    if (!camera || !stage) {
+      setNearbyShapes(null);
+      return;
+    }
+
+    const clickPosition = mercatorToGeographic(mercatorPoint[0], mercatorPoint[1]);
+    const rect = stage.getBoundingClientRect();
+    camera.updateMatrixWorld();
+    const worldPosition = new Vector3();
+    const projectPosition = (
+      position: Position,
+      heightKm = surfaceElevationKm + 0.01,
+    ): Position | null => {
+      const [x, z] = toLocal(position, dataset.metadata.center);
+      worldPosition.set(x, heightKm, z).project(camera);
+      if (worldPosition.z < -1 || worldPosition.z > 1) return null;
+      return [
+        rect.left + (worldPosition.x + 1) * rect.width / 2,
+        rect.top + (1 - worldPosition.y) * rect.height / 2,
       ];
-      syncView({ ...viewRef.current, target }, true);
-    },
-    [dataset, syncView],
-  );
+    };
+    const projectLines = (lines: Position[][]): Position[][] => {
+      const result: Position[][] = [];
+      for (const line of lines) {
+        let projectedLine: Position[] = [];
+        for (const position of line) {
+          const projected = projectPosition(position);
+          if (projected) {
+            projectedLine.push(projected);
+          } else {
+            if (projectedLine.length > 1) result.push(projectedLine);
+            projectedLine = [];
+          }
+        }
+        if (projectedLine.length > 1) result.push(projectedLine);
+      }
+      return result;
+    };
+    const hits: { label: string; target: NearbyShapes["items"][number]["target"]; distance: number }[] = [];
+    const seen = new Set<string>();
+    const addCandidate = (
+      label: string,
+      target: NearbyShapes["items"][number]["target"],
+      geometry: FeatureGeometry | undefined,
+      lines: Position[][],
+      marker?: { position: Position; heightKm: number },
+    ) => {
+      const key = target.kind === "region"
+        ? `region:${target.id}`
+        : `feature:${target.category}:${target.id}`;
+      if (seen.has(key)) return;
+      let distance = Infinity;
+      if (geometry && geometryContainsPosition(geometry, clickPosition)) {
+        distance = 0;
+      } else if (marker) {
+        const projected = projectPosition(marker.position, marker.heightKm);
+        if (projected) {
+          distance = Math.hypot(projected[0] - clientX, projected[1] - clientY);
+        }
+      } else if (lines.length > 0) {
+        distance = distanceToLineSegments(
+          [clientX, clientY],
+          projectLines(lines),
+        );
+      }
+      if (distance <= 12) {
+        seen.add(key);
+        hits.push({ label, target, distance });
+      }
+    };
+
+    for (const region of displayRegions) {
+      if (region.visible === false || region.type === "county") continue;
+      if (region.type === "point") {
+        const heightKm = region.elevationMeters === undefined
+          ? surfaceElevationKm + 0.01
+          : region.elevationMeters * settings.exaggeration / 1_000 + 0.01;
+        addCandidate(
+          region.name,
+          { kind: "region", id: region.id },
+          undefined,
+          [],
+          { position: region.position, heightKm },
+        );
+        continue;
+      }
+      const geometries = customRegionGeometries(region, dataset.metadata.center);
+      const geometry = geometries.find((item) =>
+        item.type === "Polygon" || item.type === "MultiPolygon"
+      );
+      const lines = region.type === "polyline" ? [region.points] : [];
+      addCandidate(region.name, { kind: "region", id: region.id }, geometry, lines);
+    }
+
+    const visibleCategories: TopographicFeatureCategory[] = [
+      "highways",
+      "interstates",
+      "rivers",
+      "railways",
+      "peaks",
+      "counties",
+      "nationalParks",
+      "nationalForests",
+      "longitudeLatitudeLines",
+    ];
+    for (const category of visibleCategories) {
+      for (const id of topographicSelections[category]) {
+        const option = topographicOptions[category].find((item) => item.id === id);
+        if (!option) continue;
+        if (category === "peaks") {
+          if (!option.position) continue;
+          const currentView = viewRef.current;
+          if (currentView.distance > MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM) continue;
+          const localPosition = toLocal(option.position, dataset.metadata.center);
+          if (Math.hypot(
+            localPosition[0] - currentView.target[0],
+            localPosition[1] - currentView.target[1],
+          ) > currentView.distance * 0.6) continue;
+          const heightKm = option.elevationMeters === undefined
+            ? surfaceElevationKm + 0.1
+            : option.elevationMeters * settings.exaggeration / 1_000 + 0.1;
+          addCandidate(
+            option.label,
+            { kind: "feature", category, id },
+            undefined,
+            [],
+            { position: option.position, heightKm },
+          );
+          continue;
+        }
+        const isPolygon = option.geometry?.type === "Polygon" ||
+          option.geometry?.type === "MultiPolygon";
+        const lines = isPolygon
+          ? []
+          : option.lines ?? (
+            option.geometry ? linePiecesFromGeometries([option.geometry]) : []
+          );
+        addCandidate(
+          option.label,
+          { kind: "feature", category, id },
+          option.geometry,
+          lines,
+        );
+      }
+    }
+
+    hits.sort((left, right) =>
+      left.distance - right.distance || left.label.localeCompare(right.label)
+    );
+    setNearbyShapes(hits.length > 0 ? { clientX, clientY, items: hits } : null);
+  }, [dataset, displayRegions, settings.exaggeration, topographicOptions, topographicSelections]);
   selectMapPointRef.current = selectMapPoint;
+  const dismissNearbyShapes = useCallback(() => setNearbyShapes(null), []);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 2) return;
@@ -907,6 +1081,7 @@ export function App() {
       placingPoint: placingCustomPointRef.current,
       handle,
     };
+    activeRegionDragIdRef.current = handle?.id ?? null;
     if (event.button === 2 && !handle) {
       const camera = cameraRef.current;
       const terrainRaycast = terrainRaycastRef.current;
@@ -1333,10 +1508,11 @@ export function App() {
         polygonPiecesFromGeometries([option.geometry]),
       );
     } else if (option.lines) {
+      const lines = option.lines.filter((line) => line.length >= 2);
       converted = createPieceRegions(
         option.label,
         "polyline",
-        option.lines.filter((line) => line.length >= 2),
+        category === "rivers" ? mergeRiverLinePaths(lines) : lines,
       );
     }
     if (converted.length === 0) return;
@@ -1670,6 +1846,9 @@ export function App() {
           onShapePreviewChange={updateShapeOperationPreview}
           onFocusRegion={focusRegion}
           onFocusFeature={focusFeature}
+          nearbyShapes={nearbyShapes}
+          onDismissNearbyShapes={dismissNearbyShapes}
+          activeRegionDragIdRef={activeRegionDragIdRef}
           onCreateElevationPoint={addElevationExtremumPoint}
           onCreateElevationProfile={getElevationProfile}
           onSampleElevation={sampleTerrainElevation}

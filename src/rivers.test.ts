@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import shp from "shpjs";
-import { getRiverFeatureOptions, parseRiverShapefile } from "./rivers";
+import {
+  getRiverFeatureOptions,
+  mergeRiverLinePaths,
+  parseRiverShapefile,
+} from "./rivers";
 
 describe("river shapefile", () => {
   test("parses the river archive into named line options", async () => {
@@ -24,6 +28,9 @@ describe("river shapefile", () => {
       Object.keys(feature.properties).length === 1 &&
       feature.geometry.type === "MultiLineString"
     )).toBe(true);
+    const kernRiver = options.find((option) => option.id === "Kern River");
+    expect(kernRiver?.lines).toHaveLength(629);
+    expect(mergeRiverLinePaths(kernRiver?.lines ?? [])).toHaveLength(1);
 
     const clippedColorado = collection.features.find(
       (feature) => feature.properties.name === "Colorado River",
@@ -46,5 +53,23 @@ describe("river shapefile", () => {
         geometry: { type: "LineString", coordinates: [[-122, 37]] },
       }],
     })).toThrow("River shapefile feature 1 is missing a name or line geometry.");
+  });
+
+  test("joins unambiguous shared endpoints while keeping separate paths and branches", () => {
+    const joined = mergeRiverLinePaths([
+      [[-120, 36], [-121, 36]],
+      [[-122, 36], [-121, 36]],
+      [[-123, 36], [-124, 36]],
+    ]);
+    expect(joined).toEqual([
+      [[-120, 36], [-121, 36], [-122, 36]],
+      [[-123, 36], [-124, 36]],
+    ]);
+
+    expect(mergeRiverLinePaths([
+      [[-120, 36], [-121, 36]],
+      [[-121, 36], [-122, 36]],
+      [[-121, 36], [-121, 37]],
+    ])).toHaveLength(3);
   });
 });
