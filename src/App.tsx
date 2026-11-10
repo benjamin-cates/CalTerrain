@@ -70,6 +70,11 @@ import {
 } from "./regionExport";
 import { longitudeLatitudeCellId } from "./longitudeLatitudeGrid";
 import {
+  classifyPendingPinchGesture,
+  PINCH_ZOOM_START_THRESHOLD,
+  type PinchGestureMode,
+} from "./touchGestures";
+import {
   combineTerrainExportRegions,
   createStoreZip,
   createTerrainImageCanvas,
@@ -107,7 +112,7 @@ type PinchGesture = {
   startCenter: Position;
   startDistance: number;
   startPositions: [Position, Position];
-  mode: "pan" | "zoom" | null;
+  mode: PinchGestureMode | null;
 };
 
 type MapPoint = { position: Position; elevationKm: number };
@@ -742,15 +747,18 @@ export function App() {
               nextCenter[1] - pinch.startCenter[1],
             );
             const distanceChange = Math.abs(nextDistance - pinch.startDistance);
-
-            if (firstTravel > 4 && secondTravel > 4) {
-              const movementAgreement =
-                firstDelta[0] * secondDelta[0] + firstDelta[1] * secondDelta[1];
-              pinch.mode = movementAgreement === 0
-                ? (centerTravel >= distanceChange ? "pan" : "zoom")
-                : movementAgreement > 0 ? "pan" : "zoom";
-            } else if (Math.max(firstTravel, secondTravel) > 12) {
-              pinch.mode = centerTravel >= distanceChange ? "pan" : "zoom";
+            const nextMode = classifyPendingPinchGesture(
+              firstDelta,
+              secondDelta,
+              centerTravel,
+              distanceChange,
+            );
+            if (nextMode) {
+              pinch.mode = nextMode;
+              if (nextMode === "zoom") {
+                pinch.startDistance += Math.sign(nextDistance - pinch.startDistance) *
+                  PINCH_ZOOM_START_THRESHOLD;
+              }
             }
           }
 
