@@ -117,7 +117,7 @@ type PinchGesture = {
 
 type MapPoint = { position: Position; elevationKm: number };
 
-const PINCH_ZOOM_SENSITIVITY = 2.625;
+const PINCH_ZOOM_SENSITIVITY = 1;
 
 function createPieceRegions(
   name: string,
@@ -533,8 +533,6 @@ export function App() {
   const placeCustomPointRef = useRef<(position: Position) => void>(() => { });
   const mapRaycaster = useMemo(() => new Raycaster(), []);
   const mapPointer = useMemo(() => new Vector2(), []);
-  const centerRaycaster = useMemo(() => new Raycaster(), []);
-  const centerScreenPointer = useMemo(() => new Vector2(0, 0), []);
   const mapPlane = useMemo(() => new Plane(new Vector3(0, 1, 0), -0.1), []);
   const mapIntersection = useMemo(() => new Vector3(), []);
   datasetRef.current = dataset;
@@ -688,6 +686,35 @@ export function App() {
       : null;
   }, [mapIntersection, mapPlane, mapPointer, mapRaycaster, settings.exaggeration]);
 
+  const centerCameraOnTerrain = useCallback(() => {
+    const stage = stageRef.current;
+    const camera = cameraRef.current;
+    if (!stage || !camera) return;
+    const rect = stage.getBoundingClientRect();
+    const hit = pointOnMap(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+      true,
+      true,
+    );
+    if (!hit) return;
+
+    const dx = camera.position.x - hit.position[0];
+    const dy = camera.position.y - hit.elevationKm;
+    const dz = camera.position.z - hit.position[1];
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance <= 0) return;
+
+    centerTerrainElevationRef.current = hit.elevationKm;
+    syncView({
+      ...viewRef.current,
+      target: [hit.position[0], hit.position[1]],
+      distance,
+      azimuth: Math.atan2(dx, dz),
+      polar: Math.acos(Math.max(-1, Math.min(1, dy / distance))),
+    }, true);
+  }, [pointOnMap, syncView]);
+
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -740,8 +767,6 @@ export function App() {
               second[0] - pinch.startPositions[1][0],
               second[1] - pinch.startPositions[1][1],
             ];
-            const firstTravel = Math.hypot(...firstDelta);
-            const secondTravel = Math.hypot(...secondDelta);
             const centerTravel = Math.hypot(
               nextCenter[0] - pinch.startCenter[0],
               nextCenter[1] - pinch.startCenter[1],
@@ -1096,6 +1121,7 @@ export function App() {
         const first = touchPointersRef.current.get(pointerIds[0] ?? -1);
         const second = touchPointersRef.current.get(pointerIds[1] ?? -1);
         if (pointerIds.length === 2 && first && second) {
+          centerCameraOnTerrain();
           const center: Position = [
             (first[0] + second[0]) / 2,
             (first[1] + second[1]) / 2,
@@ -1167,33 +1193,7 @@ export function App() {
     };
     activeRegionDragIdRef.current = handle?.id ?? null;
     if (event.button === 2 && !handle) {
-      const camera = cameraRef.current;
-      const terrainRaycast = terrainRaycastRef.current;
-      if (camera && terrainRaycast) {
-        camera.updateMatrixWorld();
-        centerRaycaster.setFromCamera(centerScreenPointer, camera);
-        const ray = centerRaycaster.ray;
-        const hit = terrainRaycast({
-          origin: [ray.origin.x, ray.origin.y, ray.origin.z],
-          direction: [ray.direction.x, ray.direction.y, ray.direction.z],
-        }, settings.exaggeration);
-        if (hit) {
-          const dx = camera.position.x - hit.position[0];
-          const dy = camera.position.y - hit.elevationKm;
-          const dz = camera.position.z - hit.position[1];
-          const distance = Math.hypot(dx, dy, dz);
-          if (distance > 0) {
-            centerTerrainElevationRef.current = hit.elevationKm;
-            syncView({
-              ...viewRef.current,
-              target: [hit.position[0], hit.position[1]],
-              distance,
-              azimuth: Math.atan2(dx, dz),
-              polar: Math.acos(Math.max(-1, Math.min(1, dy / distance))),
-            }, true);
-          }
-        }
-      }
+      centerCameraOnTerrain();
     }
     if (handle) {
       event.preventDefault();
