@@ -346,6 +346,15 @@ function MoreIcon() {
   );
 }
 
+function ChevronLeftIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="m12 4-6 6 6 6" stroke="currentColor" strokeWidth="1.7"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function KnifeIcon() {
   return (
     <svg viewBox="0 0 86 98" fill="currentColor" aria-hidden="true">
@@ -540,8 +549,8 @@ function MoreActionCategory({
 
 function MorePopup({ name, type, detail, convertLabel, conversionDisabled, perimeterMeters,
   conversionHelp, areaSquareMeters, lengthMeters, prominenceMeters, isolationKm, measurementSystem,
-  popupRef, style, onClose, onConvert, onFocus, showDetails, viewActions, analysisActions,
-  editActions, children, onBack }: {
+  popupRef, style, className, onClose, onConvert, onFocus, showDetails, viewActions,
+  headerActions, analysisActions, editActions, children, onBack, onReturnToList }: {
     name: string;
     type: string;
     detail?: string;
@@ -556,26 +565,35 @@ function MorePopup({ name, type, detail, convertLabel, conversionDisabled, perim
     measurementSystem: ViewSettings["measurementSystem"];
     popupRef: RefObject<HTMLDivElement | null>;
     style: CSSProperties;
+    className?: string;
     onClose: () => void;
     onConvert?: () => void;
     onFocus: () => void;
     showDetails: boolean;
     viewActions?: ReactNode;
+    headerActions?: ReactNode;
     analysisActions?: ReactNode;
     editActions?: ReactNode;
     children?: ReactNode;
     onBack?: () => void;
+    onReturnToList?: () => void;
   }) {
   return (
-    <div ref={popupRef} className="topographic-popup more-popup" role="dialog"
+    <div ref={popupRef} className={`topographic-popup more-popup${className ? ` ${className}` : ""}`} role="dialog"
       aria-label={`${name} details`} style={style}>
-      <div className="topographic-popup-header">
+      <div className={`topographic-popup-header${onReturnToList ? " feature-detail-popup-header" : ""}`}>
+        {onReturnToList && (
+          <button type="button" className="feature-detail-back" aria-label="Back to feature list"
+            title="Back to feature list" onClick={onReturnToList}>
+            <ChevronLeftIcon />
+          </button>
+        )}
         <div>
           <strong>{name}</strong>
           <small>{type}</small>
-          {detail && <small className="more-popup-feature-detail">{detail}</small>}
         </div>
         <div className="more-popup-header-actions">
+          {headerActions}
           {onBack && <button type="button" aria-label="Back to feature details" onClick={onBack}>‹</button>}
           <button type="button" aria-label={`Close ${name} details`} onClick={onClose}>×</button>
         </div>
@@ -603,6 +621,12 @@ function MorePopup({ name, type, detail, convertLabel, conversionDisabled, perim
             {editActions && <MoreActionCategory category="edit">{editActions}</MoreActionCategory>}
           </div>
           <dl className="more-popup-measurements">
+            {detail && (
+              <>
+                <dt>Details</dt>
+                <dd className="more-popup-measurement-detail">{detail}</dd>
+              </>
+            )}
             {perimeterMeters !== undefined && (
               <>
                 <dt>Perimeter</dt>
@@ -707,6 +731,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   });
   const [customPeakFormError, setCustomPeakFormError] = useState<string | null>(null);
   const featurePanelRef = useRef<HTMLDivElement>(null);
+  const featureListRef = useRef<HTMLDivElement>(null);
   const featurePanelButtonRef = useRef<HTMLButtonElement>(null);
   const morePopupRef = useRef<HTMLDivElement>(null);
   const nearbyShapesRef = useRef<HTMLDivElement>(null);
@@ -1309,6 +1334,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const featurePanelCategories: TopographicFeatureCategory[] = featurePanel === "highways"
     ? ["highways", "interstates"]
     : featurePanel ? [featurePanel] : [];
+  const inlineFeatureDetail = featurePanel !== null &&
+    moreTarget?.kind === "feature" &&
+    featurePanelCategories.includes(moreTarget.category);
+  const moreClipCategory =
+    moreTarget?.kind === "feature" &&
+    isClipFeatureCategory(moreTarget.category)
+    ? moreTarget.category
+    : null;
   const featureOptionCount = featurePanelCategories.reduce(
     (count, category) => count + props.topographicOptions[category].length,
     0,
@@ -1318,6 +1351,10 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   );
   if (featurePanel === "highways") {
     featurePanelOptions.sort(compareHighwayFeatureOptions);
+  } else {
+    featurePanelOptions.sort((a, b) =>
+      a.option.label.localeCompare(b.option.label, undefined, { numeric: true, sensitivity: "base" })
+    );
   }
   const selectedFeatureCount = featurePanel
     ? featurePanelOptions.filter(({ category, option }) =>
@@ -1339,6 +1376,83 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const filteredFeatureOptions = featurePanelOptions.filter(({ option }) =>
     `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(featureSearchTerm)
   );
+  const visibleFeatureOptions = featurePanelOptions.filter(({ category, option }) =>
+    props.topographicSelections[category].includes(option.id)
+  );
+  const cutFeatureOptions = featurePanelOptions.filter(({ category, option }) =>
+    isClipFeatureCategory(category) && props.clipSelections[category].includes(option.id)
+  );
+  const quickAccessOptions = featureSearchTerm
+    ? []
+    : [...new Map([
+      ...(visibleFeatureOptions.length > 0 && visibleFeatureOptions.length < 10
+        ? visibleFeatureOptions
+        : []),
+      ...(cutFeatureOptions.length > 0 && cutFeatureOptions.length < 10
+        ? cutFeatureOptions
+        : []),
+    ].map((item) => [`${item.category}:${item.option.id}`, item])).values()];
+  const renderFeatureOption = (item: CategorizedFeatureOption, list: "quick" | "all") => {
+    const { category, option } = item;
+    const isVisible = props.topographicSelections[category].includes(option.id);
+    const clipCategory = isClipFeatureCategory(category) ? category : null;
+    const isClipped = clipCategory !== null &&
+      props.clipSelections[clipCategory].includes(option.id);
+    return (
+      <div className="topographic-feature-option" key={`${list}:${category}:${option.id}`}>
+        <div className="topographic-feature-name">
+          <strong>{option.label}</strong>
+          {option.detail && <small>{option.detail}</small>}
+        </div>
+        <div className="topographic-feature-actions">
+          <button className="region-visibility" type="button"
+            aria-label={`${isVisible ? "Hide" : "Show"} ${option.label}`}
+            aria-pressed={isVisible}
+            title={isVisible ? "Hide boundary" : "Show boundary"}
+            onClick={() => props.onToggleTopographicFeature(category, option.id, !isVisible)}>
+            <VisibilityIcon visible={isVisible} />
+          </button>
+          {clipCategory !== null ? (
+            <button className="region-clip" type="button"
+              aria-label={`${isClipped ? "Remove" : "Add"} ${option.label} ${isClipped ? "from" : "to"} cuts`}
+              aria-pressed={isClipped}
+              title={isClipped ? "Remove from cuts" : "Add to cuts"}
+              onClick={() =>
+                props.onToggleClipFeature(clipCategory, option.id, !isClipped)
+              }>
+              <KnifeIcon />
+            </button>
+          ) : (
+            <span className="region-clip-placeholder" aria-hidden="true" />
+          )}
+          <button className="region-more" type="button"
+            aria-label={`More details for ${option.label}`}
+            aria-expanded={
+              moreTarget?.kind === "feature" &&
+              moreTarget.category === category &&
+              moreTarget.id === option.id
+            }
+            title={`More details for ${option.label}`}
+            onClick={(event) => toggleMorePopup({
+              kind: "feature",
+              category,
+              id: option.id,
+              selectedIdAtOpen: props.selectedId,
+            }, event.currentTarget)}>
+            <MoreIcon />
+          </button>
+        </div>
+        {option.custom && (
+          <button
+            type="button"
+            aria-label={`Remove custom peak ${option.label}`}
+            title="Remove custom peak"
+            onClick={() => props.onRemoveCustomPeak(option.id)}
+          >×</button>
+        )}
+      </div>
+    );
+  };
   const featureSource = featurePanel ? FEATURE_SOURCES[featurePanel] : null;
   const renderFeatureButtons = (categories: FeatureCategoryButton[]) =>
     categories.map(({ id, label, categories: groupedCategories }) => {
@@ -1995,7 +2109,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         </div>
       )}
 
-      {featurePanel && (
+      {featurePanel && !inlineFeatureDetail && (
         <div
           ref={featurePanelRef}
           className="topographic-popup"
@@ -2082,73 +2196,21 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             <span />
             <div><span>View</span><span>Cut</span><span>More</span></div>
           </div>
-          <div className="topographic-feature-list">
-            {filteredFeatureOptions.length > 0 ? filteredFeatureOptions.map(({ category, option }) => {
-              const isVisible = props.topographicSelections[category].includes(option.id);
-              const clipCategory: ClipFeatureCategory | null =
-                isClipFeatureCategory(category)
-                  ? category
-                  : null;
-              const isClipped = clipCategory !== null &&
-                props.clipSelections[clipCategory].includes(option.id);
-              return (
-                <div className="topographic-feature-option" key={`${category}:${option.id}`}>
-                  <div className="topographic-feature-name">
-                    <strong>{option.label}</strong>
-                    {option.detail && <small>{option.detail}</small>}
-                  </div>
-                  <div className="topographic-feature-actions">
-                    <button className="region-visibility" type="button"
-                      aria-label={`${isVisible ? "Hide" : "Show"} ${option.label}`}
-                      aria-pressed={isVisible}
-                      title={isVisible ? "Hide boundary" : "Show boundary"}
-                      onClick={() => props.onToggleTopographicFeature(category, option.id, !isVisible)}>
-                      <VisibilityIcon visible={isVisible} />
-                    </button>
-                    {clipCategory !== null && (
-                      <button className="region-clip" type="button"
-                        aria-label={`${isClipped ? "Remove" : "Add"} ${option.label} ${isClipped ? "from" : "to"} cuts`}
-                        aria-pressed={isClipped}
-                        title={isClipped ? "Remove from cuts" : "Add to cuts"}
-                        onClick={() =>
-                          props.onToggleClipFeature(clipCategory, option.id, !isClipped)
-                        }>
-                        <KnifeIcon />
-                      </button>
-                    )}
-                    {clipCategory === null && (
-                      <span className="region-clip-placeholder" aria-hidden="true" />
-                    )}
-                    <button className="region-more" type="button"
-                      aria-label={`More details for ${option.label}`}
-                      aria-expanded={
-                        moreTarget?.kind === "feature" &&
-                        moreTarget.category === category &&
-                        moreTarget.id === option.id
-                      }
-                      title={`More details for ${option.label}`}
-                      onClick={(event) => toggleMorePopup({
-                        kind: "feature",
-                        category,
-                        id: option.id,
-                        selectedIdAtOpen: props.selectedId,
-                      }, event.currentTarget)}>
-                      <MoreIcon />
-                    </button>
-                  </div>
-                  {option.custom && (
-                    <button
-                      type="button"
-                      aria-label={`Remove custom peak ${option.label}`}
-                      title="Remove custom peak"
-                      onClick={() => props.onRemoveCustomPeak(option.id)}
-                    >×</button>
-                  )}
-                </div>
-              );
-            }) : featureOptionCount > 0 ? (
-              <small className="topographic-status">No features match your search.</small>
-            ) : null}
+          <div className="topographic-feature-list" ref={featureListRef}>
+            {quickAccessOptions.length > 0 && (
+              <section className="topographic-feature-section" aria-label="Quick access features">
+                <strong className="topographic-feature-section-title">Quick access</strong>
+                {quickAccessOptions.map((item) => renderFeatureOption(item, "quick"))}
+              </section>
+            )}
+            <section className="topographic-feature-section" aria-label="All features">
+              <strong className="topographic-feature-section-title">All</strong>
+              {filteredFeatureOptions.length > 0 ? filteredFeatureOptions.map((item) =>
+                renderFeatureOption(item, "all")
+              ) : featureOptionCount > 0 ? (
+                <small className="topographic-status">No features match your search.</small>
+              ) : null}
+            </section>
           </div>
           {featurePanel === "peaks" && (
             <button
@@ -2186,12 +2248,54 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           isolationKm={moreFeatureOption?.isolationKm}
           measurementSystem={settings.measurementSystem}
           popupRef={morePopupRef}
+          className={inlineFeatureDetail ? "feature-detail-popup" : undefined}
           style={{
-            top: morePosition.top,
-            left: morePosition.left,
-            maxHeight: `calc(100dvh - ${morePosition.top}px - 16px)`,
+            top: inlineFeatureDetail ? featurePanelPosition.top : morePosition.top,
+            left: inlineFeatureDetail ? featurePanelPosition.left : morePosition.left,
+            maxHeight: `calc(100dvh - ${
+              inlineFeatureDetail ? featurePanelPosition.top : morePosition.top
+            }px - 16px)`,
           }}
           showDetails={morePage === null}
+          headerActions={moreTarget.kind === "feature" ? (
+            <>
+              <button className="region-visibility" type="button"
+                aria-label={`${props.topographicSelections[moreTarget.category].includes(moreTarget.id)
+                  ? "Hide" : "Show"} ${moreName}`}
+                aria-pressed={props.topographicSelections[moreTarget.category].includes(moreTarget.id)}
+                title={props.topographicSelections[moreTarget.category].includes(moreTarget.id)
+                  ? "Hide boundary" : "Show boundary"}
+                onClick={() => props.onToggleTopographicFeature(
+                  moreTarget.category,
+                  moreTarget.id,
+                  !props.topographicSelections[moreTarget.category].includes(moreTarget.id),
+                )}>
+                <VisibilityIcon visible={
+                  props.topographicSelections[moreTarget.category].includes(moreTarget.id)
+                } />
+              </button>
+              {moreClipCategory !== null && (
+                <button className="region-clip" type="button"
+                  aria-label={`${
+                    props.clipSelections[moreClipCategory].includes(moreTarget.id)
+                      ? "Remove" : "Add"
+                  } ${moreName} ${
+                    props.clipSelections[moreClipCategory].includes(moreTarget.id)
+                      ? "from" : "to"
+                  } cuts`}
+                  aria-pressed={props.clipSelections[moreClipCategory].includes(moreTarget.id)}
+                  title={props.clipSelections[moreClipCategory].includes(moreTarget.id)
+                    ? "Remove from cuts" : "Add to cuts"}
+                  onClick={() => props.onToggleClipFeature(
+                    moreClipCategory,
+                    moreTarget.id,
+                    !props.clipSelections[moreClipCategory].includes(moreTarget.id),
+                  )}>
+                  <KnifeIcon />
+                </button>
+              )}
+            </>
+          ) : undefined}
           analysisActions={
             (hasPolygonGeometry || moreLineGeometries.length > 0) ? (
               <>
@@ -2264,7 +2368,16 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             setMorePage(null);
             setMoreActionError(null);
           } : undefined}
-          onClose={closeMorePopup}
+          onReturnToList={inlineFeatureDetail ? () => {
+            closeMorePopup();
+            requestAnimationFrame(() => {
+              if (featureListRef.current) featureListRef.current.scrollTop = 0;
+            });
+          } : undefined}
+          onClose={inlineFeatureDetail ? () => {
+            closeMorePopup();
+            setFeaturePanel(null);
+          } : closeMorePopup}
           onConvert={() => {
             if (moreTarget.kind === "region") {
               props.onConvertRegion(moreTarget.id);
