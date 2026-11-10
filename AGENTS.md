@@ -19,6 +19,13 @@
   The checked-in MTS and SMART sources are
   `data_sources/mts_trolley_routes.geojson` and `data_sources/SMART.geojson`.
   SACRT input and shapefile ZIP generation require GDAL's `ogr2ogr` command.
+- Normalize the checked-in NHD major river archive in place with
+  `python3 src/scripts/unify_river_lines.py`. It updates
+  `public/data/features/nhd_major_rivers.zip`, joins uniquely nearest river
+  path endpoints within 30 meters and then 1 kilometer, splits the distinct
+  Tule and Roaring rivers into named features, and orders each line downhill
+  using the generated terrain elevations. This requires GDAL's `ogr2ogr` and
+  `gdal_translate` commands.
 
 ## Coordinate and terrain conventions
 

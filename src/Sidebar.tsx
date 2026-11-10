@@ -18,6 +18,7 @@ import {
   parseLatitudeLongitudePoints,
 } from "./shapePointList";
 import { bisectPolygonClosingEdge } from "./regions";
+import { mergeRiverLinePaths } from "./rivers";
 import {
   customRegionGeometries,
   featureGeometryPositions,
@@ -173,16 +174,32 @@ type Props = {
 type FeatureCategoryButton = {
   id: TopographicFeatureCategory;
   label: string;
+  categories?: TopographicFeatureCategory[];
 };
+
+type CategorizedFeatureOption = {
+  category: TopographicFeatureCategory;
+  option: TopographicFeatureOption;
+};
+
+function compareHighwayFeatureOptions(
+  left: CategorizedFeatureOption,
+  right: CategorizedFeatureOption,
+): number {
+  const leftNumber = Number(left.option.label.match(/\d+/)?.[0] ?? Number.POSITIVE_INFINITY);
+  const rightNumber = Number(right.option.label.match(/\d+/)?.[0] ?? Number.POSITIVE_INFINITY);
+  return leftNumber - rightNumber ||
+    left.category.localeCompare(right.category);
+}
 
 type MoreTarget =
   | { kind: "region"; id: string; selectedIdAtOpen: string | null }
   | {
-      kind: "feature";
-      category: TopographicFeatureCategory;
-      id: string;
-      selectedIdAtOpen: string | null;
-    };
+    kind: "feature";
+    category: TopographicFeatureCategory;
+    id: string;
+    selectedIdAtOpen: string | null;
+  };
 
 type MorePage =
   | "sample"
@@ -230,9 +247,8 @@ const MANMADE_CATEGORIES: FeatureCategoryButton[] = [
   { id: "longitudeLatitudeLines", label: "Long/Lat borders" },
   { id: "nationalForests", label: "National forests" },
   { id: "nationalParks", label: "National parks" },
-  { id: "highways", label: "Highways" },
-  { id: "interstates", label: "Interstates" },
-  { id: "railways", label: "Railways" },
+  { id: "highways", label: "Highways & Interstates", categories: ["highways", "interstates"] },
+  { id: "railways", label: "Passenger rail" },
 ];
 
 const HEIGHT_PALETTES: {
@@ -519,29 +535,29 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
   conversionHelp, areaSquareMeters, lengthMeters, prominenceMeters, isolationKm, measurementSystem,
   popupRef, style, onClose, onConvert, onFocus, showDetails, viewActions, analysisActions,
   editActions, children, onBack }: {
-  name: string;
-  type: string;
-  convertLabel?: string;
-  conversionDisabled?: boolean;
-  conversionHelp?: string;
-  perimeterMeters?: number;
-  areaSquareMeters?: number;
-  lengthMeters?: number;
-  prominenceMeters?: number;
-  isolationKm?: number;
-  measurementSystem: ViewSettings["measurementSystem"];
-  popupRef: RefObject<HTMLDivElement | null>;
-  style: CSSProperties;
-  onClose: () => void;
-  onConvert?: () => void;
-  onFocus: () => void;
-  showDetails: boolean;
-  viewActions?: ReactNode;
-  analysisActions?: ReactNode;
-  editActions?: ReactNode;
-  children?: ReactNode;
-  onBack?: () => void;
-}) {
+    name: string;
+    type: string;
+    convertLabel?: string;
+    conversionDisabled?: boolean;
+    conversionHelp?: string;
+    perimeterMeters?: number;
+    areaSquareMeters?: number;
+    lengthMeters?: number;
+    prominenceMeters?: number;
+    isolationKm?: number;
+    measurementSystem: ViewSettings["measurementSystem"];
+    popupRef: RefObject<HTMLDivElement | null>;
+    style: CSSProperties;
+    onClose: () => void;
+    onConvert?: () => void;
+    onFocus: () => void;
+    showDetails: boolean;
+    viewActions?: ReactNode;
+    analysisActions?: ReactNode;
+    editActions?: ReactNode;
+    children?: ReactNode;
+    onBack?: () => void;
+  }) {
   return (
     <div ref={popupRef} className="topographic-popup more-popup" role="dialog"
       aria-label={`${name} details`} style={style}>
@@ -780,16 +796,16 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     : undefined;
   const sampleDistanceMeters = (lineLengthMeters ?? 0) * samplePercent / 100;
   const samplePosition = useMemo(() => moreLineGeometries.length > 0 &&
-      (lineLengthMeters ?? 0) > 0 &&
-      props.center
+    (lineLengthMeters ?? 0) > 0 &&
+    props.center
     ? positionAtLineDistance(moreLineGeometries, sampleDistanceMeters, props.center)
     : null,
-  [lineLengthMeters, moreLineGeometries, props.center, sampleDistanceMeters]);
+    [lineLengthMeters, moreLineGeometries, props.center, sampleDistanceMeters]);
   const polygonPointCount = moreRegion?.type === "polygon"
     ? moreRegion.points.length - (
       moreRegion.points.length > 1 &&
-      moreRegion.points[0]?.[0] === moreRegion.points.at(-1)?.[0] &&
-      moreRegion.points[0]?.[1] === moreRegion.points.at(-1)?.[1]
+        moreRegion.points[0]?.[0] === moreRegion.points.at(-1)?.[0] &&
+        moreRegion.points[0]?.[1] === moreRegion.points.at(-1)?.[1]
         ? 1
         : 0
     )
@@ -826,7 +842,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     parsedPolygonStartIndex >= 1 &&
     parsedPolygonStartIndex <= polygonPointCount;
   const polygonStartPreviewPosition = moreRegion?.type === "polygon" &&
-      polygonStartIndexValid
+    polygonStartIndexValid
     ? moreRegion.points[parsedPolygonStartIndex - 1] ?? null
     : null;
   const setSetting = <K extends keyof ViewSettings>(key: K, value: ViewSettings[K]) =>
@@ -1209,7 +1225,10 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     setProfileLoading(true);
     setProfileDialogOpen(true);
     try {
-      const profile = await props.onCreateElevationProfile(moreLineGeometries);
+      const profileLines = moreFeatureCategory === "rivers"
+        ? mergeRiverLinePaths(moreLineGeometries)
+        : moreLineGeometries;
+      const profile = await props.onCreateElevationProfile(profileLines);
       if (request === profileRequestRef.current) setElevationProfile(profile);
     } catch (error) {
       if (request === profileRequestRef.current) {
@@ -1268,39 +1287,61 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     setCustomPeakFormError(null);
     setCustomPeakDialogOpen(false);
   };
-  const featureOptionCount = featurePanel
-    ? props.topographicOptions[featurePanel].length
-    : 0;
+  const featurePanelCategories: TopographicFeatureCategory[] = featurePanel === "highways"
+    ? ["highways", "interstates"]
+    : featurePanel ? [featurePanel] : [];
+  const featureOptionCount = featurePanelCategories.reduce(
+    (count, category) => count + props.topographicOptions[category].length,
+    0,
+  );
+  const featurePanelOptions: CategorizedFeatureOption[] = featurePanelCategories.flatMap((category) =>
+    props.topographicOptions[category].map((option) => ({ category, option }))
+  );
+  if (featurePanel === "highways") {
+    featurePanelOptions.sort(compareHighwayFeatureOptions);
+  }
   const selectedFeatureCount = featurePanel
-    ? props.topographicSelections[featurePanel].filter((id) =>
-      props.topographicOptions[featurePanel].some((option) => option.id === id)
+    ? featurePanelOptions.filter(({ category, option }) =>
+      props.topographicSelections[category].includes(option.id)
     ).length
     : 0;
+  const featurePanelLoading = featurePanelCategories.some((category) =>
+    props.topographicStatus[category].loading
+  );
+  const featurePanelErrors = featurePanelCategories.flatMap((category) => {
+    const error = props.topographicStatus[category].error;
+    return error ? [{ category, error }] : [];
+  });
   const featurePanelLabel = featurePanel
     ? [...TOPOGRAPHIC_CATEGORIES, ...MANMADE_CATEGORIES]
       .find((category) => category.id === featurePanel)?.label ?? "Feature"
     : "Feature";
   const featureSearchTerm = featureSearchQuery.trim().toLowerCase();
-  const filteredFeatureOptions = featurePanel
-    ? props.topographicOptions[featurePanel].filter((option) =>
-      `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(featureSearchTerm)
-    )
-    : [];
+  const filteredFeatureOptions = featurePanelOptions.filter(({ option }) =>
+    `${option.label} ${option.detail ?? ""}`.toLowerCase().includes(featureSearchTerm)
+  );
   const featureSource = featurePanel ? FEATURE_SOURCES[featurePanel] : null;
   const renderFeatureButtons = (categories: FeatureCategoryButton[]) =>
-    categories.map(({ id, label }) => {
-      const visibleIds = new Set(props.topographicSelections[id]);
-      const cutIds = new Set(isClipFeatureCategory(id) ? props.clipSelections[id] : []);
-      const options = props.topographicOptions[id];
-      const visibleCount = options.filter((option) => visibleIds.has(option.id)).length;
-      const previewOptions = options.filter((option) =>
-        visibleIds.has(option.id) || cutIds.has(option.id)
+    categories.map(({ id, label, categories: groupedCategories }) => {
+      const optionCategories = groupedCategories ?? [id];
+      const options: CategorizedFeatureOption[] = optionCategories.flatMap((category) =>
+        props.topographicOptions[category].map((option) => ({ category, option }))
+      );
+      if (id === "highways") {
+        options.sort(compareHighwayFeatureOptions);
+      }
+      const visibleCount = options.filter(({ category, option }) =>
+        props.topographicSelections[category].includes(option.id)
+      ).length;
+      const previewOptions = options.filter(({ category, option }) =>
+        props.topographicSelections[category].includes(option.id) ||
+        (isClipFeatureCategory(category) && props.clipSelections[category].includes(option.id))
       );
       const summary = options.length > 0 && visibleCount === options.length
         ? "All visible"
         : previewOptions.length > 0
-          ? previewOptions.map((option) => option.label).join(" · ")
-          : props.topographicStatus[id].loading ? "Loading features…" : "None enabled";
+        ? previewOptions.map(({ option }) => option.label).join(" · ")
+        : props.topographicStatus[id].loading ? "Loading features…" : "None enabled";
       return (
         <button
           className={`topographic-button${featurePanel === id ? " is-open" : ""}`}
@@ -1967,23 +2008,28 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               ref={enableAllRef}
               type="checkbox"
               checked={featureOptionCount > 0 && selectedFeatureCount === featureOptionCount}
-              disabled={props.topographicStatus[featurePanel].loading || featureOptionCount === 0}
-              onChange={(event) =>
-                props.onSetAllTopographicFeatures(featurePanel, event.target.checked)
-              }
+              disabled={featurePanelLoading || featureOptionCount === 0}
+              onChange={(event) => {
+                for (const category of featurePanelCategories) {
+                  props.onSetAllTopographicFeatures(category, event.target.checked);
+                }
+              }}
             />
             <strong>All visible</strong>
           </label>
-          {props.topographicStatus[featurePanel].loading && (
+          {featurePanelLoading && (
             <small className="topographic-status" role="status">Loading feature data…</small>
           )}
-          {props.topographicStatus[featurePanel].error && (
-            <small className="topographic-status is-error" role="alert">
-              {props.topographicStatus[featurePanel].error}
+          {featurePanelErrors.map(({ category, error }) => (
+            <small className="topographic-status is-error" role="alert" key={category}>
+              {featurePanelCategories.length > 1
+                ? `${category === "highways" ? "Highways" : "Interstates"}: `
+                : ""}
+              {error}
             </small>
-          )}
-          {!props.topographicStatus[featurePanel].loading &&
-            !props.topographicStatus[featurePanel].error &&
+          ))}
+          {!featurePanelLoading &&
+            featurePanelErrors.length === 0 &&
             featureOptionCount === 0 && (
               <small className="topographic-status">No features are available.</small>
             )}
@@ -2002,18 +2048,16 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             <div><span>View</span><span>Cut</span><span>More</span></div>
           </div>
           <div className="topographic-feature-list">
-            {filteredFeatureOptions.length > 0 ? filteredFeatureOptions.map((option) => {
-              const isVisible = props.topographicSelections[featurePanel].includes(option.id);
+            {filteredFeatureOptions.length > 0 ? filteredFeatureOptions.map(({ category, option }) => {
+              const isVisible = props.topographicSelections[category].includes(option.id);
               const clipCategory: ClipFeatureCategory | null =
-                featurePanel === "counties" ||
-                  featurePanel === "nationalParks" || featurePanel === "nationalForests" ||
-                  featurePanel === "longitudeLatitudeLines"
-                  ? featurePanel
+                isClipFeatureCategory(category)
+                  ? category
                   : null;
               const isClipped = clipCategory !== null &&
                 props.clipSelections[clipCategory].includes(option.id);
               return (
-                <div className="topographic-feature-option" key={option.id}>
+                <div className="topographic-feature-option" key={`${category}:${option.id}`}>
                   <div className="topographic-feature-name">
                     <strong>{option.label}</strong>
                     {option.detail && <small>{option.detail}</small>}
@@ -2023,7 +2067,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                       aria-label={`${isVisible ? "Hide" : "Show"} ${option.label}`}
                       aria-pressed={isVisible}
                       title={isVisible ? "Hide boundary" : "Show boundary"}
-                      onClick={() => props.onToggleTopographicFeature(featurePanel, option.id, !isVisible)}>
+                      onClick={() => props.onToggleTopographicFeature(category, option.id, !isVisible)}>
                       <VisibilityIcon visible={isVisible} />
                     </button>
                     {clipCategory !== null && (
@@ -2044,13 +2088,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                       aria-label={`More details for ${option.label}`}
                       aria-expanded={
                         moreTarget?.kind === "feature" &&
-                        moreTarget.category === featurePanel &&
+                        moreTarget.category === category &&
                         moreTarget.id === option.id
                       }
                       title={`More details for ${option.label}`}
                       onClick={(event) => toggleMorePopup({
                         kind: "feature",
-                        category: featurePanel,
+                        category,
                         id: option.id,
                         selectedIdAtOpen: props.selectedId,
                       }, event.currentTarget)}>

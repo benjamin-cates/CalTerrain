@@ -16,9 +16,13 @@ describe("river shapefile", () => {
     );
     const options = getRiverFeatureOptions(collection);
 
-    expect(collection.features).toHaveLength(302);
-    expect(options).toHaveLength(302);
+    expect(collection.features).toHaveLength(304);
+    expect(options).toHaveLength(304);
     expect(options.map((option) => option.id)).toContain("Sacramento River");
+    expect(options.map((option) => option.id)).toContain("Tule River (Tulare County)");
+    expect(options.map((option) => option.id)).toContain("Tule River (Shasta County)");
+    expect(options.map((option) => option.id)).toContain("Roaring River (Cottonwood)");
+    expect(options.map((option) => option.id)).toContain("Roaring River (Kings)");
     expect(options.every((option) => option.lines?.length)).toBe(true);
     expect(collection.features.reduce((total, feature) =>
       total + (feature.geometry.type === "LineString"
@@ -26,20 +30,32 @@ describe("river shapefile", () => {
         : feature.geometry.coordinates.length), 0)).toBeGreaterThan(0);
     expect(collection.features.every((feature) =>
       Object.keys(feature.properties).length === 1 &&
-      feature.geometry.type === "MultiLineString"
+      (feature.geometry.type === "LineString" ||
+        feature.geometry.type === "MultiLineString")
     )).toBe(true);
     const kernRiver = options.find((option) => option.id === "Kern River");
-    expect(kernRiver?.lines).toHaveLength(629);
+    expect(kernRiver?.lines).toHaveLength(1);
     expect(mergeRiverLinePaths(kernRiver?.lines ?? [])).toHaveLength(1);
+    expect(options.find((option) => option.id === "Tule River (Tulare County)")?.lines)
+      .toHaveLength(2);
+    expect(options.find((option) => option.id === "Tule River (Shasta County)")?.lines)
+      .toHaveLength(1);
+    expect(options.find((option) => option.id === "Roaring River (Kings)")?.lines)
+      .toHaveLength(1);
+    expect(options.find((option) => option.id === "Roaring River (Cottonwood)")?.lines)
+      .toHaveLength(1);
 
     const clippedColorado = collection.features.find(
       (feature) => feature.properties.name === "Colorado River",
     );
-    const coloradoLatitudes = clippedColorado?.geometry.type === "MultiLineString"
-      ? clippedColorado.geometry.coordinates.flatMap((line) =>
-        line.map(([, latitude]) => latitude)
-      )
-      : [];
+    const coloradoLines = clippedColorado?.geometry.type === "LineString"
+      ? [clippedColorado.geometry.coordinates]
+      : clippedColorado?.geometry.type === "MultiLineString"
+        ? clippedColorado.geometry.coordinates
+        : [];
+    const coloradoLatitudes = coloradoLines.flatMap((line) =>
+      line.map(([, latitude]) => latitude)
+    );
     expect(Math.max(...coloradoLatitudes)).toBeCloseTo(35.002, 6);
     expect(Math.min(...coloradoLatitudes)).toBeCloseTo(32.718731, 6);
   });
