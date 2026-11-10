@@ -54,8 +54,22 @@ describe("boundary shapefile features", () => {
     ]);
 
     expect(getBoundaryFeatureOptions(collection, "Park", "code", "name")).toEqual([
-      { id: "A", label: "Alpha" },
-      { id: "B", label: "Beta" },
+      {
+        id: "A",
+        label: "Alpha",
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]]],
+        },
+      },
+      {
+        id: "B",
+        label: "Beta",
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[0, 0], [1, 0], [0, 1], [0, 0]]],
+        },
+      },
     ]);
   });
 

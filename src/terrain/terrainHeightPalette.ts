@@ -1,7 +1,7 @@
 import { heightFromRgb } from "./terrainHeight";
 
 export type TerrainHeightPalette = "grayscale" | "rainbow" | "viridis" | "magma";
-export type TerrainEmissivePalette = TerrainHeightPalette | "custom" | "solid";
+export type TerrainEmissivePalette = TerrainHeightPalette | "custom" | "solid" | "none";
 
 export const TERRAIN_HEIGHT_PREVIEW_MIN_METERS = -100;
 export const TERRAIN_HEIGHT_PREVIEW_MAX_METERS = 4_500;

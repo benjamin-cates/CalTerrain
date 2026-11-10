@@ -44,6 +44,8 @@ import {
 } from "./types";
 import { useTerrainData } from "./terrain/useTerrainData";
 import { useBoundaryFeatureData } from "./terrain/useBoundaryFeatureData";
+import { useEcoregionData } from "./terrain/useEcoregionData";
+import { useEcoregionMapTexture } from "./terrain/useEcoregionMapTexture";
 import { getHighwayRouteLines, getHighwayRouteNumbers } from "./highways";
 import { useHighwayData } from "./terrain/useHighwayData";
 import { getRailwayFeatureOptions } from "./railways";
@@ -248,6 +250,15 @@ export function App() {
     "forestname",
   );
   const [settings, setSettings] = useState(INITIAL_SETTINGS);
+  const ecoregionData = useEcoregionData();
+  const {
+    texture: ecoregionMapTexture,
+    loading: ecoregionMapLoading,
+    error: ecoregionMapError,
+  } = useEcoregionMapTexture(settings.regionMap);
+  useEffect(() => {
+    if (settings.regionMap !== "none") void ecoregionData.load();
+  }, [ecoregionData.load, settings.regionMap]);
   const [welcomeOpen, setWelcomeOpen] = useState(true);
   const dismissWelcome = useCallback(() => setWelcomeOpen(false), []);
   const [topographicSelections, setTopographicSelections] =
@@ -343,10 +354,12 @@ export function App() {
       })),
       railways: railwayFeatures ? getRailwayFeatureOptions(railwayFeatures) : [],
       rivers: riverFeatures ? getRiverFeatureOptions(riverFeatures) : [],
+      ecoregions: ecoregionData.options,
     };
   }, [
     allMountainPeaks,
     dataset,
+    ecoregionData.options,
     highwayFeatures,
     longitudeLatitudeGrid,
     nationalForestData.options,
@@ -365,11 +378,19 @@ export function App() {
     longitudeLatitudeLines: { loading: !dataset, error: dataError },
     railways: { loading: railwayLoading, error: railwayError },
     rivers: { loading: riverLoading, error: riverError },
+    ecoregions: {
+      loading: ecoregionData.loading || ecoregionMapLoading,
+      error: ecoregionData.error ?? ecoregionMapError,
+    },
   }), [
     countiesError,
     countiesLoading,
     dataError,
     dataset,
+    ecoregionData.error,
+    ecoregionData.loading,
+    ecoregionMapError,
+    ecoregionMapLoading,
     highwayError,
     highwayLoading,
     mountainError,
@@ -409,6 +430,7 @@ export function App() {
       { id: "nationalParks", prefix: "National park" },
       { id: "nationalForests", prefix: "National forest" },
       { id: "longitudeLatitudeLines", prefix: "Grid cell" },
+      { id: "ecoregions", prefix: "Ecoregion" },
     ];
     for (const { id, prefix } of categories) {
       for (const selectedId of clipSelections[id]) {
@@ -433,6 +455,7 @@ export function App() {
       nationalParkData.features,
       nationalForestData.features,
       longitudeLatitudeGrid,
+      ecoregionData.features,
     );
     return createTerrainExportRegions(
       boundaryCollection,
@@ -445,6 +468,7 @@ export function App() {
     nationalForestData.features,
     nationalParkData.features,
     longitudeLatitudeGrid,
+    ecoregionData.features,
     regions,
   ]);
   const preparedTerrainExportRegions = preparedTerrainExportData.regions;
@@ -589,8 +613,10 @@ export function App() {
       setRailwayDataRequested(true);
     } else if (category === "rivers") {
       setRiverDataRequested(true);
+    } else if (category === "ecoregions") {
+      void ecoregionData.load();
     }
-  }, [loadCounties, nationalForestData.load, nationalParkData.load]);
+  }, [ecoregionData.load, loadCounties, nationalForestData.load, nationalParkData.load]);
   const toggleTopographicFeature = useCallback((
     category: TopographicFeatureCategory,
     id: string,
@@ -1061,6 +1087,7 @@ export function App() {
       "nationalParks",
       "nationalForests",
       "longitudeLatitudeLines",
+      "ecoregions",
     ];
     for (const category of visibleCategories) {
       for (const id of topographicSelections[category]) {
@@ -1638,6 +1665,7 @@ export function App() {
       nationalParkData.features,
       nationalForestData.features,
       longitudeLatitudeGrid,
+      ecoregionData.features,
     );
     const blob = new Blob([JSON.stringify(collection, null, 2)], {
       type: "application/geo+json",
@@ -1656,6 +1684,7 @@ export function App() {
     nationalForestData.features,
     nationalParkData.features,
     longitudeLatitudeGrid,
+    ecoregionData.features,
     regions,
   ]);
 
@@ -1680,6 +1709,7 @@ export function App() {
         nationalParkData.features,
         nationalForestData.features,
         longitudeLatitudeGrid,
+        ecoregionData.features,
       );
       const { regions: exportRegions, californiaPolygons } = createTerrainExportRegions(
         boundaryCollection,
@@ -1764,6 +1794,7 @@ export function App() {
     dataset,
     nationalForestData.features,
     nationalParkData.features,
+    ecoregionData.features,
     regions,
     settings.exaggeration,
     terrainExportBusy,
@@ -1985,6 +2016,9 @@ export function App() {
             highwayFeatures={highwayFeatures}
             railwayFeatures={railwayFeatures}
             riverFeatures={riverFeatures}
+            ecoregions={ecoregionData.features}
+            ecoregionMapMetadata={ecoregionData.mapMetadata}
+            ecoregionMapTexture={ecoregionMapTexture}
             nationalParks={nationalParkData.features}
             nationalForests={nationalForestData.features}
             longitudeLatitudeLines={longitudeLatitudeGrid}

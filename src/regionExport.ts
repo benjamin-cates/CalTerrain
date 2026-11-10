@@ -19,6 +19,7 @@ const CLIP_FEATURE_CATEGORY_NAMES: Record<ClipFeatureCategory, string> = {
   nationalParks: "National park",
   nationalForests: "National forest",
   longitudeLatitudeLines: "Longitude and latitude cell",
+  ecoregions: "Ecoregion",
 };
 
 export function clipFeatureExportRegionId(
@@ -59,6 +60,7 @@ export function createRegionBoundaryExport(
   nationalParks: BoundaryCollection | null,
   nationalForests: BoundaryCollection | null,
   longitudeLatitudeLines: BoundaryCollection | null,
+  ecoregions: BoundaryCollection | null,
 ): BoundaryCollection {
   const customFeatures: BoundaryFeature[] = regions
     .filter((region) =>
@@ -108,6 +110,13 @@ export function createRegionBoundaryExport(
       (feature) => String(feature.properties.cellId ?? ""),
       (feature) => String(feature.properties.name ?? ""),
       "longitudeLatitudeLines",
+    ),
+    ...selectedBoundaryFeatures(
+      ecoregions,
+      clipSelections.ecoregions,
+      (feature) => String(feature.properties.US_L4CODE ?? "").trim(),
+      (feature) => String(feature.properties.US_L4NAME ?? "").trim(),
+      "ecoregions",
     ),
   ];
 

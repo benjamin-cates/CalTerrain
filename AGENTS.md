@@ -11,8 +11,12 @@
   than duplicating their calculations.
 - `src/scripts/` generates the county-derived California boundary, terrain
   tiles, latitude/longitude grid, BART service-route GeoJSON, and unified
-  California passenger rail routes. Generated browser data lives in
+  California passenger rail routes, and EPA ecoregion maps. Generated browser data lives in
   `public/data`; source datasets live in `data_sources`.
+- The browser loads EPA Level 4 boundaries from
+  `public/data/features/CA_Eco_L4.zip`. Regenerate the 120 m Level 3/Level 4
+  lossless WebP maps with `bun run generate:ecoregions`. This requires GDAL's
+  `ogr2ogr`, `gdal_create`, `gdal_rasterize`, and `gdal_translate` commands.
 - Regenerate the unified passenger rail routes with
   `python3 src/scripts/generate_california_rail_routes.py`; it updates both
   `public/data/features/california_rail_routes.geojson` and its shapefile ZIP.

@@ -39,18 +39,21 @@ export type TopographicFeatureCategory =
   | "nationalParks"
   | "nationalForests"
   | "longitudeLatitudeLines"
-  | "railways";
+  | "railways"
+  | "ecoregions";
 export type TopographicFeatureSelections = Record<TopographicFeatureCategory, string[]>;
 export type ClipFeatureCategory =
   | "counties"
   | "nationalParks"
   | "nationalForests"
-  | "longitudeLatitudeLines";
+  | "longitudeLatitudeLines"
+  | "ecoregions";
 export type ClipFeatureSelections = Record<ClipFeatureCategory, string[]>;
 export type TopographicFeatureOption = {
   id: string;
   label: string;
   detail?: string;
+  moreDetail?: string;
   custom?: boolean;
   geometry?: FeatureGeometry;
   lines?: Position[][];
@@ -80,6 +83,7 @@ export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelection
   nationalForests: [],
   longitudeLatitudeLines: [],
   railways: [],
+  ecoregions: [],
 };
 
 export const INITIAL_CLIP_FEATURE_SELECTIONS: ClipFeatureSelections = {
@@ -87,6 +91,7 @@ export const INITIAL_CLIP_FEATURE_SELECTIONS: ClipFeatureSelections = {
   nationalParks: [],
   nationalForests: [],
   longitudeLatitudeLines: [],
+  ecoregions: [],
 };
 
 export type ViewSettings = {
@@ -94,6 +99,7 @@ export type ViewSettings = {
   exaggeration: number;
   clip: boolean;
   terrainPalette: TerrainEmissivePalette;
+  regionMap: "none" | "broad" | "fine";
   terrainEmissiveColor: string;
   terrainGradientLowColor: string;
   terrainGradientHighColor: string;
@@ -149,6 +155,7 @@ export const INITIAL_SETTINGS: ViewSettings = {
   exaggeration: 3,
   clip: false,
   terrainPalette: "grayscale",
+  regionMap: "none",
   terrainEmissiveColor: "#404040",
   terrainGradientLowColor: "#152273",
   terrainGradientHighColor: "#f98c88",

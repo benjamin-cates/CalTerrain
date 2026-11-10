@@ -1,6 +1,6 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import { Vector3, type Camera } from "three";
+import { Vector3, type Camera, type Texture } from "three";
 import { countyId, featureRings, toLocal } from "../geo";
 import { longitudeLatitudeCellId } from "../longitudeLatitudeGrid";
 import { RegionOverlay, type TerrainLineLayer } from "../RegionOverlay";
@@ -14,6 +14,7 @@ import type { RailwayFeatureCollection } from "../railways";
 import type { RiverFeatureCollection } from "../rivers";
 import type { TerrainExportBoundingBox } from "./terrainExport";
 import type { TerrainRaycast } from "./terrainRaycast";
+import type { EcoregionMapMetadata } from "./ecoregions";
 import {
   boundaryFeatureClipPolygons,
   regionClipPolygons as getRegionClipPolygons,
@@ -107,6 +108,9 @@ export function TerrainScene({
   highwayFeatures,
   railwayFeatures,
   riverFeatures,
+  ecoregions,
+  ecoregionMapMetadata,
+  ecoregionMapTexture,
   nationalParks,
   nationalForests,
   longitudeLatitudeLines,
@@ -133,6 +137,9 @@ export function TerrainScene({
   highwayFeatures: HighwayFeatureCollection | null;
   railwayFeatures: RailwayFeatureCollection | null;
   riverFeatures: RiverFeatureCollection | null;
+  ecoregions: BoundaryCollection | null;
+  ecoregionMapMetadata: EcoregionMapMetadata | null;
+  ecoregionMapTexture: Texture | null;
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
@@ -176,6 +183,10 @@ export function TerrainScene({
   const selectedNationalForestIds = useMemo(
     () => new Set(topographicSelections.nationalForests),
     [topographicSelections.nationalForests],
+  );
+  const selectedEcoregionIds = useMemo(
+    () => new Set(topographicSelections.ecoregions),
+    [topographicSelections.ecoregions],
   );
   const selectedLongitudeLatitudeCellIds = useMemo(
     () => new Set(topographicSelections.longitudeLatitudeLines),
@@ -230,13 +241,21 @@ export function TerrainScene({
         longitudeLatitudeCellId,
         data.metadata.center,
       ),
+      ...boundaryFeatureClipPolygons(
+        ecoregions,
+        clipSelections.ecoregions,
+        (feature) => String(feature.properties.US_L4CODE ?? "").trim(),
+        data.metadata.center,
+      ),
     ];
   }, [
+    clipSelections.ecoregions,
     clipSelections.longitudeLatitudeLines,
     clipSelections.nationalForests,
     clipSelections.nationalParks,
     counties,
     data.metadata.center,
+    ecoregions,
     nationalForests,
     nationalParks,
     longitudeLatitudeLines,
@@ -313,13 +332,30 @@ export function TerrainScene({
           opacity: 0.9,
         }]
       : []),
+    ...(ecoregions && selectedEcoregionIds.size > 0
+      ? [{
+          id: "ecoregion-borders",
+          lines: ecoregions.features
+            .filter((feature) => selectedEcoregionIds.has(String(feature.properties.US_L4CODE).trim()))
+            .flatMap((feature) =>
+              featureRings(feature).map((ring) =>
+                ring.map((point) => toLocal(point, data.metadata.center))
+              )
+            ),
+          color: "#d8bd68",
+          lineWidth: 1.8,
+          opacity: 0.9,
+        }]
+      : []),
   ], [
     counties.features,
     data.metadata.center,
+    ecoregions,
     longitudeLatitudeLines,
     nationalForests,
     nationalParks,
     selectedCountyIds,
+    selectedEcoregionIds,
     selectedLongitudeLatitudeCellIds,
     selectedNationalForestIds,
     selectedNationalParkIds,
@@ -473,6 +509,9 @@ export function TerrainScene({
             terrainEmissiveColor={settings.terrainEmissiveColor}
             terrainGradientLowColor={settings.terrainGradientLowColor}
             terrainGradientHighColor={settings.terrainGradientHighColor}
+            regionMap={ecoregionMapMetadata ? settings.regionMap : "none"}
+            regionMapMetadata={ecoregionMapMetadata}
+            regionMapTexture={ecoregionMapTexture}
             clipPolygons={terrainClipPolygons}
             tiles={deferredTiles}
           />

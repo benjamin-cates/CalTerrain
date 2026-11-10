@@ -7,6 +7,7 @@
     "dev": "bun --hot src/index.ts",
     "process:terrain": "python3 src/scripts/process_terrain.py && bun run generate:grid",
     "generate:grid": "bun src/scripts/generate_longitude_latitude_grid.ts",
+    "generate:ecoregions": "bun src/scripts/generate_ecoregion_maps.ts",
     "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
     "start": "NODE_ENV=production bun src/index.ts"
   },

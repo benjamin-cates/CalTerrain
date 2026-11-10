@@ -45,6 +45,26 @@ const longitudeLatitudeLines: BoundaryCollection = {
     },
   }],
 };
+const ecoregionBoundaries: BoundaryCollection = {
+  type: "FeatureCollection",
+  features: [{
+    type: "Feature",
+    properties: {
+      US_L4CODE: "8a",
+      US_L4NAME: "Western Transverse Range Lower Montane Shrub and Woodland",
+      US_L3NAME: "Southern California Mountains",
+    },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [-121, 37],
+        [-120, 37],
+        [-120, 38],
+        [-121, 37],
+      ]],
+    },
+  }],
+};
 
 describe("region boundary export and clipping", () => {
   test("returns an empty feature collection when nothing is selected for clipping", () => {
@@ -55,8 +75,10 @@ describe("region boundary export and clipping", () => {
         nationalParks: [],
         nationalForests: [],
         longitudeLatitudeLines: [],
+        ecoregions: [],
       },
       center,
+      null,
       null,
       null,
       null,
@@ -119,10 +141,12 @@ describe("region boundary export and clipping", () => {
         nationalParks: ["PARK1"],
         nationalForests: [],
         longitudeLatitudeLines: [],
+        ecoregions: [],
       },
       center,
       null,
       parkBoundaries,
+      null,
       null,
       null,
     );
@@ -150,12 +174,14 @@ describe("region boundary export and clipping", () => {
         nationalParks: [],
         nationalForests: [],
         longitudeLatitudeLines: ["lonlat--125-40"],
+        ecoregions: [],
       },
       center,
       null,
       null,
       null,
       longitudeLatitudeLines,
+      null,
     );
 
     expect(result.features).toHaveLength(1);
@@ -167,5 +193,34 @@ describe("region boundary export and clipping", () => {
     expect(clipFeatureExportRegionId("longitudeLatitudeLines", "lonlat--125-40"))
       .toBe(String(result.features[0]?.properties.id));
     expect(result.features[0]?.geometry).toEqual(longitudeLatitudeLines.features[0]?.geometry);
+  });
+
+  test("exports a selected Level IV ecoregion", () => {
+    const result = createRegionBoundaryExport(
+      [],
+      {
+        counties: [],
+        nationalParks: [],
+        nationalForests: [],
+        longitudeLatitudeLines: [],
+        ecoregions: ["8a"],
+      },
+      center,
+      null,
+      null,
+      null,
+      null,
+      ecoregionBoundaries,
+    );
+
+    expect(result.features).toHaveLength(1);
+    expect(result.features[0]?.properties).toMatchObject({
+      id: "Ecoregion:8a",
+      name: "Western Transverse Range Lower Montane Shrub and Woodland",
+      category: "Ecoregion",
+    });
+    expect(clipFeatureExportRegionId("ecoregions", "8a"))
+      .toBe(String(result.features[0]?.properties.id));
+    expect(result.features[0]?.geometry).toEqual(ecoregionBoundaries.features[0]?.geometry);
   });
 });

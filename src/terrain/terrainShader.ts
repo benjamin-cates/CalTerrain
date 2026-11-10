@@ -9,6 +9,7 @@ import {
   Texture,
   Vector2,
   Vector3,
+  Vector4,
 } from "three";
 import { TERRAIN_SKIRT_BOTTOM_ELEVATION_METERS } from "./terrainSkirts";
 
@@ -29,6 +30,9 @@ type TerrainClipShaderUniforms = TerrainShaderUniforms & {
   uTerrainPaletteStopCount: { value: number };
   uTerrainPaletteSolid: { value: number };
   uTerrainSolidColor: { value: Vector3 };
+  uTerrainRegionMap: { value: Texture };
+  uTerrainRegionMapEnabled: { value: number };
+  uTerrainRegionMapBounds: { value: Vector4 };
 };
 type TerrainShader = Parameters<Material["onBeforeCompile"]>[0];
 
@@ -208,6 +212,19 @@ vec3 terrainHeightPaletteEmissive(float heightMeters) {
 }
 `;
 
+const terrainRegionMapShader = `
+uniform sampler2D uTerrainRegionMap;
+uniform float uTerrainRegionMapEnabled;
+uniform vec4 uTerrainRegionMapBounds;
+varying vec2 vTerrainRegionMapUv;
+
+vec3 terrainRegionMapSrgbToLinear(vec3 color) {
+  vec3 low = color / 12.92;
+  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));
+  return mix(low, high, step(vec3(0.04045), color));
+}
+`;
+
 function replaceShaderChunk(shader: TerrainShader, chunk: string, replacement: string): void {
   if (!shader.vertexShader.includes(chunk)) {
     throw new Error(`Could not configure terrain vertex shader chunk: ${chunk}`);
@@ -231,12 +248,13 @@ function applyTerrainHeightVertexShader(
   uniforms: TerrainShaderUniforms,
   updateNormals: boolean,
   passHeightToFragment = false,
+  passRegionMapUv = false,
 ): void {
   Object.assign(shader.uniforms, uniforms);
   replaceShaderChunk(
     shader,
     "#include <common>",
-    `#include <common>\n${terrainHeightShader}\nattribute float terrainSkirt;${passHeightToFragment ? "\nvarying float vTerrainHeightMeters;" : ""}`,
+    `#include <common>\n${terrainHeightShader}\nattribute float terrainSkirt;${passHeightToFragment ? "\nvarying float vTerrainHeightMeters;" : ""}${passRegionMapUv ? "\nuniform vec4 uTerrainRegionMapBounds;\nvarying vec2 vTerrainRegionMapUv;" : ""}`,
   );
   if (updateNormals) {
     replaceShaderChunk(
@@ -268,6 +286,15 @@ function applyTerrainHeightVertexShader(
       float terrainSkirtBottom = uTerrainSkirtBottomMeters * uTerrainExaggeration / 1000.0;
       transformed.y = mix(terrainSurfaceHeight, terrainSkirtBottom, terrainSkirt);
       ${passHeightToFragment ? "vTerrainHeightMeters = mix(terrainHeightMeters, uTerrainSkirtBottomMeters, terrainSkirt);" : ""}
+      ${passRegionMapUv ? `
+        vec4 terrainWorldPosition = modelMatrix * vec4(transformed, 1.0);
+        vTerrainRegionMapUv = vec2(
+          (terrainWorldPosition.x - uTerrainRegionMapBounds.x) /
+            (uTerrainRegionMapBounds.z - uTerrainRegionMapBounds.x),
+          (-terrainWorldPosition.z - uTerrainRegionMapBounds.y) /
+            (uTerrainRegionMapBounds.w - uTerrainRegionMapBounds.y)
+        );
+      ` : ""}
     `,
   );
 }
@@ -277,6 +304,7 @@ function applyTerrainClipMaskFragmentShader(
   uniforms: TerrainClipShaderUniforms,
   chunk: string,
   useHeightPalette = false,
+  useRegionMap = false,
 ): void {
   replaceFragmentShaderChunk(
     shader,
@@ -284,7 +312,8 @@ function applyTerrainClipMaskFragmentShader(
     `#include <common>
      uniform sampler2D uTerrainClipMask;
      uniform float uTerrainClipMaskEnabled;
-     ${useHeightPalette ? terrainHeightPaletteShader : ""}`,
+     ${useHeightPalette ? terrainHeightPaletteShader : ""}
+     ${useRegionMap ? terrainRegionMapShader : ""}`,
   );
   Object.assign(shader.uniforms, {
     uTerrainClipMask: uniforms.uTerrainClipMask,
@@ -294,6 +323,11 @@ function applyTerrainClipMaskFragmentShader(
       uTerrainPaletteStopCount: uniforms.uTerrainPaletteStopCount,
       uTerrainPaletteSolid: uniforms.uTerrainPaletteSolid,
       uTerrainSolidColor: uniforms.uTerrainSolidColor,
+    }),
+    ...(useRegionMap && {
+      uTerrainRegionMap: uniforms.uTerrainRegionMap,
+      uTerrainRegionMapEnabled: uniforms.uTerrainRegionMapEnabled,
+      uTerrainRegionMapBounds: uniforms.uTerrainRegionMapBounds,
     }),
   });
   replaceFragmentShaderChunk(
@@ -307,14 +341,28 @@ export function applyTerrainDisplacementShader(
   shader: TerrainShader,
   uniforms: TerrainClipShaderUniforms,
 ): void {
-  applyTerrainHeightVertexShader(shader, uniforms, true, true);
+  applyTerrainHeightVertexShader(shader, uniforms, true, true, true);
   replaceFragmentShaderChunk(
     shader,
     "#include <map_fragment>",
     `#include <map_fragment>
-     diffuseColor.rgb = vec3(1.0);`,
+     diffuseColor.rgb = vec3(1.0);
+     if (uTerrainRegionMapEnabled > 0.5) {
+       vec4 regionMapColor = texture2D(uTerrainRegionMap, vTerrainRegionMapUv);
+       diffuseColor.rgb = mix(
+         diffuseColor.rgb,
+         terrainRegionMapSrgbToLinear(regionMapColor.rgb),
+         regionMapColor.a
+       );
+     }`,
   );
-  applyTerrainClipMaskFragmentShader(shader, uniforms, "#include <map_fragment>", true);
+  applyTerrainClipMaskFragmentShader(
+    shader,
+    uniforms,
+    "#include <map_fragment>",
+    true,
+    true,
+  );
   replaceFragmentShaderChunk(
     shader,
     "#include <emissivemap_fragment>",

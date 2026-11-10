@@ -6,7 +6,7 @@ import {
   type RefObject,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import type { Camera } from "three";
+import type { Camera, Texture } from "three";
 import { TerrainScene } from "./terrain/TerrainScene";
 import type { RegionHandle } from "./regions";
 import type { HighwayFeatureCollection } from "./highways";
@@ -15,6 +15,7 @@ import type { RiverFeatureCollection } from "./rivers";
 import type { MountainPeak } from "./mountains";
 import type { TerrainExportBoundingBox } from "./terrain/terrainExport";
 import type { TerrainRaycast } from "./terrain/terrainRaycast";
+import type { EcoregionMapMetadata } from "./terrain/ecoregions";
 import type {
   Dataset,
   BoundaryCollection,
@@ -33,6 +34,9 @@ type Props = {
   highwayFeatures: HighwayFeatureCollection | null;
   railwayFeatures: RailwayFeatureCollection | null;
   riverFeatures: RiverFeatureCollection | null;
+  ecoregions: BoundaryCollection | null;
+  ecoregionMapMetadata: EcoregionMapMetadata | null;
+  ecoregionMapTexture: Texture | null;
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
@@ -82,6 +86,9 @@ export function MapDisplay(props: Props) {
     highwayFeatures,
     railwayFeatures,
     riverFeatures,
+    ecoregions,
+    ecoregionMapMetadata,
+    ecoregionMapTexture,
     nationalParks,
     nationalForests,
     longitudeLatitudeLines,
@@ -121,6 +128,9 @@ export function MapDisplay(props: Props) {
               highwayFeatures={highwayFeatures}
               railwayFeatures={railwayFeatures}
               riverFeatures={riverFeatures}
+              ecoregions={ecoregions}
+              ecoregionMapMetadata={ecoregionMapMetadata}
+              ecoregionMapTexture={ecoregionMapTexture}
               nationalParks={nationalParks}
               nationalForests={nationalForests}
               longitudeLatitudeLines={longitudeLatitudeLines}

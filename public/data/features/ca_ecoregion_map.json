@@ -1,0 +1,13 @@
+{
+  "projection": "EPSG:3857",
+  "resolutionMeters": 120,
+  "paddingPixels": 5,
+  "width": 9546,
+  "height": 11083,
+  "bounds": {
+    "minX": -13849832.023469303,
+    "minY": 3833030.9184607193,
+    "maxX": -12704312.023469303,
+    "maxY": 5162990.918460719
+  }
+}

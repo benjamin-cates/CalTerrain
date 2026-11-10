@@ -10,9 +10,11 @@ import {
   Texture,
   TextureLoader,
   Vector3,
+  Vector4,
 } from "three";
 import { WORLD_METERS } from "../geo";
-import type { Position } from "../types";
+import type { Position, ViewSettings } from "../types";
+import { getEcoregionMapLocalBounds, type EcoregionMapMetadata } from "./ecoregions";
 import {
   createTerrainClipMaskTexture,
   retainTerrainClipMask,
@@ -99,6 +101,9 @@ function TerrainTile({
   terrainEmissiveColor,
   terrainGradientLowColor,
   terrainGradientHighColor,
+  regionMap,
+  regionMapMetadata,
+  regionMapTexture,
   clipPolygons,
   clipIndex,
 }: {
@@ -110,6 +115,9 @@ function TerrainTile({
   terrainEmissiveColor: string;
   terrainGradientLowColor: string;
   terrainGradientHighColor: string;
+  regionMap: ViewSettings["regionMap"];
+  regionMapMetadata: EcoregionMapMetadata | null;
+  regionMapTexture: Texture | null;
   clipPolygons: Position[][][];
   clipIndex: TerrainClipPolygonIndex;
 }) {
@@ -147,6 +155,12 @@ function TerrainTile({
     [clipIndex, clipPolygons, tileLeft, tileSizeKm, tileTop],
   );
   const heightTexture = useMemo(() => getTerrainHeightTexture(texture), [texture]);
+  const regionMapEnabled = regionMap !== "none" && regionMapMetadata !== null &&
+    regionMapTexture !== null;
+  const regionMapBounds = useMemo(() => {
+    if (!regionMapMetadata) return new Vector4();
+    return new Vector4(...getEcoregionMapLocalBounds(regionMapMetadata.bounds, center));
+  }, [center, regionMapMetadata]);
   const heightUniforms = useMemo(
     () => createTerrainShaderUniforms(heightTexture, tileSizeKm, exaggeration),
     [heightTexture, tileSizeKm],
@@ -162,7 +176,9 @@ function TerrainTile({
     [terrainGradientHighColor],
   );
   const shaderPalette = useMemo(() => {
-    const paletteStops = heightPalette === "custom"
+    const paletteStops = heightPalette === "none"
+      ? [new Vector3()]
+      : heightPalette === "custom"
       ? [gradientLowColor, gradientHighColor].map((color) => new Vector3(
         linearToSrgb(color.r),
         linearToSrgb(color.g),
@@ -196,8 +212,19 @@ function TerrainTile({
       ...paletteUniforms,
       uTerrainClipMask: { value: clipMask.texture },
       uTerrainClipMaskEnabled: { value: 1 },
+      uTerrainRegionMap: { value: regionMapEnabled ? regionMapTexture : texture },
+      uTerrainRegionMapEnabled: { value: regionMapEnabled ? 1 : 0 },
+      uTerrainRegionMapBounds: { value: regionMapBounds },
     }),
-    [clipMask.texture, heightUniforms, paletteUniforms],
+    [
+      clipMask.texture,
+      heightUniforms,
+      paletteUniforms,
+      regionMapBounds,
+      regionMapEnabled,
+      regionMapTexture,
+      texture,
+    ],
   );
   const skirtUniforms = useMemo(
     () => ({
@@ -266,6 +293,9 @@ export function TerrainTiles({
   terrainEmissiveColor,
   terrainGradientLowColor,
   terrainGradientHighColor,
+  regionMap,
+  regionMapMetadata,
+  regionMapTexture,
   clipPolygons,
   tiles,
 }: {
@@ -275,6 +305,9 @@ export function TerrainTiles({
   terrainEmissiveColor: string;
   terrainGradientLowColor: string;
   terrainGradientHighColor: string;
+  regionMap: ViewSettings["regionMap"];
+  regionMapMetadata: EcoregionMapMetadata | null;
+  regionMapTexture: Texture | null;
   clipPolygons: Position[][][];
   tiles: { z: number; x: number; y: number }[];
 }) {
@@ -299,6 +332,9 @@ export function TerrainTiles({
             terrainEmissiveColor={terrainEmissiveColor}
             terrainGradientLowColor={terrainGradientLowColor}
             terrainGradientHighColor={terrainGradientHighColor}
+            regionMap={regionMap}
+            regionMapMetadata={regionMapMetadata}
+            regionMapTexture={regionMapTexture}
             clipPolygons={clipPolygons}
             clipIndex={clipIndex}
             texture={texture}

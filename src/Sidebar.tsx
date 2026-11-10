@@ -234,10 +234,12 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
     case "nationalForests": return "National forest";
     case "longitudeLatitudeLines": return "Latitude/longitude cell";
     case "railways": return "Railway route";
+    case "ecoregions": return "Ecoregion";
   }
 }
 
 const TOPOGRAPHIC_CATEGORIES: FeatureCategoryButton[] = [
+  { id: "ecoregions", label: "Ecoregions" },
   { id: "peaks", label: "Mountain peaks" },
   { id: "rivers", label: "Rivers" },
 ];
@@ -307,13 +309,18 @@ const FEATURE_SOURCES: Partial<Record<TopographicFeatureCategory, { label: strin
     label: "Forest Administrative Boundaries (U.S. Forest Service)",
     href: "https://data-usfs.hub.arcgis.com/datasets/usfs::forest-administrative-boundaries-feature-layer/explore",
   },
+  ecoregions: {
+    label: "EPA Level IV Ecoregions",
+    href: "https://www.epa.gov/eco-research/ecoregions-north-america",
+  },
 };
 
 function isClipFeatureCategory(category: TopographicFeatureCategory): category is ClipFeatureCategory {
   return category === "counties" ||
     category === "nationalParks" ||
     category === "nationalForests" ||
-    category === "longitudeLatitudeLines";
+    category === "longitudeLatitudeLines" ||
+    category === "ecoregions";
 }
 
 function VisibilityIcon({ visible }: { visible: boolean }) {
@@ -531,12 +538,13 @@ function MoreActionCategory({
   );
 }
 
-function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMeters,
+function MorePopup({ name, type, detail, convertLabel, conversionDisabled, perimeterMeters,
   conversionHelp, areaSquareMeters, lengthMeters, prominenceMeters, isolationKm, measurementSystem,
   popupRef, style, onClose, onConvert, onFocus, showDetails, viewActions, analysisActions,
   editActions, children, onBack }: {
     name: string;
     type: string;
+    detail?: string;
     convertLabel?: string;
     conversionDisabled?: boolean;
     conversionHelp?: string;
@@ -565,6 +573,7 @@ function MorePopup({ name, type, convertLabel, conversionDisabled, perimeterMete
         <div>
           <strong>{name}</strong>
           <small>{type}</small>
+          {detail && <small className="more-popup-feature-detail">{detail}</small>}
         </div>
         <div className="more-popup-header-actions">
           {onBack && <button type="button" aria-label="Back to feature details" onClick={onBack}>‹</button>}
@@ -847,6 +856,16 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     : null;
   const setSetting = <K extends keyof ViewSettings>(key: K, value: ViewSettings[K]) =>
     props.onSettingsChange({ ...settings, [key]: value });
+  const setEcoregionMap = (mode: "broad" | "fine") => {
+    const regionMap = settings.regionMap === mode ? "none" : mode;
+    props.onSettingsChange({
+      ...settings,
+      regionMap,
+      ...(regionMap === "none" ? {} : { terrainPalette: "none" }),
+    });
+  };
+  const setTerrainPalette = (terrainPalette: Exclude<ViewSettings["terrainPalette"], "none">) =>
+    props.onSettingsChange({ ...settings, terrainPalette, regionMap: "none" });
   const closeMorePopup = () => {
     extremumRequestRef.current += 1;
     setExtremumLoading(null);
@@ -1768,14 +1787,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             <button className="height-palette-button" type="button" key={palette.id}
               style={{ background: palette.gradient }}
               aria-pressed={settings.terrainPalette === palette.id}
-              onClick={() => setSetting("terrainPalette", palette.id)}>
+              onClick={() => setTerrainPalette(palette.id)}>
               <span className="height-palette-name">{palette.label}</span>
             </button>
           ))}
           <button className="height-palette-button" type="button"
             style={{ background: settings.terrainEmissiveColor }}
             aria-pressed={settings.terrainPalette === "solid"}
-            onClick={() => setSetting("terrainPalette", "solid")}>
+            onClick={() => setTerrainPalette("solid")}>
             <span className="height-palette-name">Solid</span>
           </button>
           <button className="height-palette-button" type="button"
@@ -1784,7 +1803,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             }}
             aria-label="Custom gradient"
             aria-pressed={settings.terrainPalette === "custom"}
-            onClick={() => setSetting("terrainPalette", "custom")}>
+            onClick={() => setTerrainPalette("custom")}>
             <span className="height-palette-name">Gradient</span>
           </button>
         </div>
@@ -2017,8 +2036,24 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             />
             <strong>All visible</strong>
           </label>
+          {featurePanel === "ecoregions" && (
+            <div className="ecoregion-map-options" role="group" aria-label="Ecoregion map visibility">
+              <button type="button" aria-pressed={settings.regionMap === "broad"}
+                onClick={() => setEcoregionMap("broad")}>
+                Level 3 map
+              </button>
+              <button type="button" aria-pressed={settings.regionMap === "fine"}
+                onClick={() => setEcoregionMap("fine")}>
+                Level 4 map
+              </button>
+            </div>
+          )}
           {featurePanelLoading && (
-            <small className="topographic-status" role="status">Loading feature data…</small>
+            <small className="topographic-status" role="status">
+              {featurePanel === "ecoregions"
+                ? "Loading ecoregion features or map…"
+                : "Loading feature data…"}
+            </small>
           )}
           {featurePanelErrors.map(({ category, error }) => (
             <small className="topographic-status is-error" role="alert" key={category}>
@@ -2136,6 +2171,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         <MorePopup
           name={moreName}
           type={moreType}
+          detail={moreFeatureOption?.moreDetail}
           convertLabel={moreConvertLabel}
           conversionDisabled={moreConversionDisabled}
           conversionHelp={
