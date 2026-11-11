@@ -1,0 +1,183 @@
+.map-welcome-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #a4ada3;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.map-welcome-close:hover {
+  border-color: rgba(var(--accent-rgb), 0.3);
+  color: #ffffff;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty-contour {
+  width: 112px;
+  height: 138px;
+  margin-bottom: 18px;
+  color: rgba(var(--accent-rgb), 0.48);
+}
+
+.empty-contour svg {
+  width: 100%;
+  height: 100%;
+}
+
+.empty-contour path:first-child {
+  fill: rgba(var(--accent-rgb), 0.08);
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.empty-contour path:last-child {
+  stroke: rgba(var(--accent-rgb), 0.22);
+  stroke-width: 0.75;
+}
+
+.empty-kicker {
+  color: var(--accent);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+}
+
+.empty-state h2 {
+  margin: 11px 0 8px;
+  color: #ffffff;
+  font-family: "Playfair Display", serif;
+  font-size: 26px;
+  font-weight: 500;
+}
+
+.empty-state p {
+  max-width: 390px;
+  margin: 0;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1.75;
+}
+
+.empty-state code {
+  margin-top: 18px;
+  padding: 10px 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.07);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.empty-note {
+  margin-top: 10px;
+  color: #e5e5e5;
+  font-size: 8px;
+}
+
+.empty-state a {
+  margin-top: 15px;
+  color: #ffffff;
+  font-size: 9px;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.empty-state a span {
+  color: var(--accent);
+}
+
+.map-controls {
+  position: absolute;
+  z-index: 2;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  border: 1px solid rgba(224, 225, 209, 0.13);
+  background: rgba(20, 28, 26, 0.9);
+  backdrop-filter: blur(10px);
+}
+
+.map-controls button {
+  display: grid;
+  width: 29px;
+  height: 29px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  font-size: 17px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.map-controls button:hover {
+  color: var(--accent);
+}
+
+.map-controls svg {
+  width: 15px;
+  height: 15px;
+}
+
+.control-divider {
+  width: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.scale-bar {
+  position: absolute;
+  bottom: 25px;
+  left: 23px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.scale-bar > span {
+  height: 5px;
+  border-right: 1px solid rgba(220, 220, 206, 0.75);
+  border-bottom: 1px solid rgba(220, 220, 206, 0.75);
+  border-left: 1px solid rgba(220, 220, 206, 0.75);
+}
+
+.map-coordinates {
+  position: absolute;
+  right: 23px;
+  bottom: 25px;
+  z-index: 2;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.map-coordinates span {
+  margin-right: 4px;
+  color: var(--accent);
+}
+

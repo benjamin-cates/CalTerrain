@@ -1,5 +1,5 @@
 import { fromLocal } from "./geo";
-import { regionGeometry } from "./regions";
+import { regionGeometry } from "./regions/geometry";
 import type { BoundaryCollection, FeatureGeometry, Position, Region } from "./types";
 
 const EMPTY_BOUNDARIES: BoundaryCollection = {

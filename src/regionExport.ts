@@ -1,5 +1,5 @@
 import { countyId, countyName, fromLocal } from "./geo";
-import { regionGeometry } from "./regions";
+import { regionGeometry } from "./regions/geometry";
 import type {
   BoundaryCollection,
   BoundaryFeature,
@@ -38,18 +38,20 @@ function selectedBoundaryFeatures(
 ): BoundaryFeature[] {
   if (!collection || selectedIds.length === 0) return [];
   const selected = new Set(selectedIds);
-  return collection.features
-    .filter((feature) => selected.has(getId(feature)))
-    .map((feature) => ({
-      type: "Feature",
+  return collection.features.flatMap((feature) => {
+    const featureId = getId(feature);
+    if (!selected.has(featureId)) return [];
+    return [{
+      type: "Feature" as const,
       properties: {
         ...feature.properties,
-        id: clipFeatureExportRegionId(category, getId(feature)),
+        id: clipFeatureExportRegionId(category, featureId),
         name: getName(feature),
         category: CLIP_FEATURE_CATEGORY_NAMES[category],
       },
       geometry: feature.geometry,
-    }));
+    }];
+  });
 }
 
 export function createRegionBoundaryExport(
@@ -82,43 +84,42 @@ export function createRegionBoundaryExport(
       }];
     });
 
-  const boundaryFeatures = [
-    ...selectedBoundaryFeatures(
-      counties,
-      clipSelections.counties,
-      countyId,
-      countyName,
-      "counties",
-    ),
-    ...selectedBoundaryFeatures(
-      nationalParks,
-      clipSelections.nationalParks,
-      (feature) => String(feature.properties.UNIT_CODE ?? "").trim(),
-      (feature) => String(feature.properties.UNIT_NAME ?? "").trim(),
-      "nationalParks",
-    ),
-    ...selectedBoundaryFeatures(
-      nationalForests,
-      clipSelections.nationalForests,
-      (feature) => String(feature.properties.forestorgc ?? "").trim(),
-      (feature) => String(feature.properties.forestname ?? "").trim(),
-      "nationalForests",
-    ),
-    ...selectedBoundaryFeatures(
-      longitudeLatitudeLines,
-      clipSelections.longitudeLatitudeLines,
-      (feature) => String(feature.properties.cellId ?? ""),
-      (feature) => String(feature.properties.name ?? ""),
-      "longitudeLatitudeLines",
-    ),
-    ...selectedBoundaryFeatures(
-      ecoregions,
-      clipSelections.ecoregions,
-      (feature) => String(feature.properties.US_L4CODE ?? "").trim(),
-      (feature) => String(feature.properties.US_L4NAME ?? "").trim(),
-      "ecoregions",
-    ),
-  ];
+  const boundarySources = [
+    { collection: counties, category: "counties", getId: countyId, getName: countyName },
+    {
+      collection: nationalParks,
+      category: "nationalParks",
+      getId: (feature: BoundaryFeature) => String(feature.properties.UNIT_CODE ?? "").trim(),
+      getName: (feature: BoundaryFeature) => String(feature.properties.UNIT_NAME ?? "").trim(),
+    },
+    {
+      collection: nationalForests,
+      category: "nationalForests",
+      getId: (feature: BoundaryFeature) => String(feature.properties.forestorgc ?? "").trim(),
+      getName: (feature: BoundaryFeature) => String(feature.properties.forestname ?? "").trim(),
+    },
+    {
+      collection: longitudeLatitudeLines,
+      category: "longitudeLatitudeLines",
+      getId: (feature: BoundaryFeature) => String(feature.properties.cellId ?? ""),
+      getName: (feature: BoundaryFeature) => String(feature.properties.name ?? ""),
+    },
+    {
+      collection: ecoregions,
+      category: "ecoregions",
+      getId: (feature: BoundaryFeature) => String(feature.properties.US_L4CODE ?? "").trim(),
+      getName: (feature: BoundaryFeature) => String(feature.properties.US_L4NAME ?? "").trim(),
+    },
+  ] as const;
+  const boundaryFeatures = boundarySources.flatMap((source) =>
+    selectedBoundaryFeatures(
+      source.collection,
+      clipSelections[source.category],
+      source.getId,
+      source.getName,
+      source.category,
+    )
+  );
 
   return {
     type: "FeatureCollection",

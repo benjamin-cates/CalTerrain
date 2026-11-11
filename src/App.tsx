@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { Camera, Plane, Raycaster, Vector2, Vector3 } from "three";
 import {
   countyId,
@@ -13,15 +13,15 @@ import {
   moveRegionHandle,
   regionsForSelectedCounties,
   type RegionHandle,
-} from "./regions";
+} from "./regions/geometry";
 import {
   customRegionGeometries,
   featureGeometryPositions,
   linePiecesFromGeometries,
   polygonPiecesFromGeometries,
-} from "./featureAnalysis";
-import { distanceToLineSegments, geometryContainsPosition } from "./nearbyShapes";
-import { combineCustomRegions, type PolygonOperation } from "./customRegionOperations";
+} from "./regions/analysis";
+import { distanceToLineSegments, geometryContainsPosition } from "./regions/nearbyShapes";
+import { combineCustomRegions, type PolygonOperation } from "./regions/operations";
 import {
   COMBINED_IMAGE_PREVIEW_ID,
   INITIAL_SETTINGS,
@@ -34,26 +34,15 @@ import {
   type ClipFeatureSelections,
   type Position,
   type Region,
-  type RegionOverlayPreview,
+  type RegionOperationPreview,
   type NearbyShapes,
   type TopographicFeatureCategory,
-  type TopographicFeatureOption,
   type TopographicFeatureSelections,
   type ViewSettings,
   type ViewState,
 } from "./types";
 import { useTerrainData } from "./terrain/useTerrainData";
-import { useBoundaryFeatureData } from "./terrain/useBoundaryFeatureData";
-import { useEcoregionData } from "./terrain/useEcoregionData";
-import { useEcoregionMapTexture } from "./terrain/useEcoregionMapTexture";
-import { getHighwayRouteLines, getHighwayRouteNumbers } from "./highways";
-import { useHighwayData } from "./terrain/useHighwayData";
-import { getRailwayFeatureOptions } from "./railways";
-import { useRailwayData } from "./terrain/useRailwayData";
-import { getRiverFeatureOptions, mergeRiverLinePaths } from "./rivers";
-import { useRiverData } from "./terrain/useRiverData";
-import { useMountainData } from "./terrain/useMountainData";
-import { useCustomMountainPeaks } from "./terrain/useCustomMountainPeaks";
+import { mergeRiverLinePaths } from "./features/rivers";
 import {
   createTerrainElevationProfile,
   createTerrainElevationSampler,
@@ -63,37 +52,23 @@ import {
 import {
   MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM,
   type MountainPeak,
-} from "./mountains";
+} from "./features/mountains";
 import { MapDisplay } from "./MapDisplay";
 import { Sidebar } from "./Sidebar";
-import {
-  clipFeatureExportRegionId,
-  createRegionBoundaryExport,
-} from "./regionExport";
-import { longitudeLatitudeCellId } from "./longitudeLatitudeGrid";
 import {
   classifyPendingPinchGesture,
   PINCH_ZOOM_START_THRESHOLD,
   type PinchGestureMode,
 } from "./touchGestures";
 import {
-  combineTerrainExportRegions,
-  createStoreZip,
-  createTerrainImageCanvas,
-  createTerrainExportRegions,
-  createTerrainGlb,
-  getTerrainImageDimensions,
-  getTerrainGroundScale,
-  terrainExportFilename,
-  MAX_TERRAIN_IMAGE_PIXELS,
   TERRAIN_EXPORT_RESOLUTIONS,
-  type TerrainExportRegion,
-  type TerrainExportTriangleReport,
-  type TerrainExportProgress,
 } from "./terrain/terrainExport";
 import type { TerrainRay, TerrainRaycast } from "./terrain/terrainRaycast";
 import type { TerrainHeightPalette } from "./terrain/terrainHeightPalette";
-import { formatDistance, formatElevation, formatLength } from "./units";
+import { formatElevation, formatLength } from "./units";
+import { TerrainImagePreview } from "./app/TerrainImagePreview";
+import { useFeatureData } from "./app/useFeatureData";
+import { useTerrainExports } from "./app/useTerrainExports";
 import "./style/index.css";
 
 type Gesture = {
@@ -135,276 +110,71 @@ function createPieceRegions(
   }));
 }
 
-function downloadFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob);
-      else reject(new Error("Could not encode the terrain canvas as a PNG."));
-    }, "image/png");
-  });
-}
-
-const TerrainImagePreview = memo(function TerrainImagePreview({
-  metadata,
-  center,
-  region,
-  resolutionMeters,
-  palette,
-  measurementSystem,
-}: {
-  metadata: Dataset["metadata"];
-  center: Position;
-  region: TerrainExportRegion | null;
-  resolutionMeters: number;
-  palette: TerrainHeightPalette;
-  measurementSystem: ViewSettings["measurementSystem"];
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [renderError, setRenderError] = useState<string | null>(null);
-  const dimensions = useMemo(() => {
-    if (!region) return null;
-    try {
-      return getTerrainImageDimensions(region, resolutionMeters, getTerrainGroundScale(center));
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : "Could not size the image." };
-    }
-  }, [center, region, resolutionMeters]);
-  const imageIsTooLarge = dimensions && "width" in dimensions &&
-    dimensions.width * dimensions.height > MAX_TERRAIN_IMAGE_PIXELS;
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !region) return;
-    let active = true;
-    setRenderError(null);
-    void createTerrainImageCanvas({
-      metadata,
-      center,
-      region,
-      resolutionMeters,
-      palette,
-    }, canvas).catch((error: unknown) => {
-      if (active) {
-        setRenderError(error instanceof Error ? error.message : "Could not render the image preview.");
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [center, metadata, palette, region, resolutionMeters]);
-
-  return (
-    <section className="map-panel image-output-panel" aria-label="Terrain image export preview">
-      <header className="image-output-header">
-        <strong>{region?.name ?? "No region selected"}</strong>
-        {dimensions && "width" in dimensions && (
-          <span>
-            {dimensions.width.toLocaleString("en-US")} × {dimensions.height.toLocaleString("en-US")} px · {formatLength(resolutionMeters, measurementSystem)}/px
-            {imageIsTooLarge ? " · exceeds browser canvas limit" : ""}
-          </span>
-        )}
-      </header>
-      <div className="image-output-stage">
-        {region && <canvas ref={canvasRef} aria-label={`${region.name} terrain image preview`} />}
-        {(!region || renderError || dimensions && "error" in dimensions || imageIsTooLarge) && (
-          <p className="topographic-status is-error" role="alert">
-            {!region
-              ? "Select a region to preview its image."
-              : imageIsTooLarge
-                ? "This image exceeds the browser canvas limit. Choose a coarser resolution or smaller region."
-                : renderError ?? (dimensions && "error" in dimensions ? dimensions.error : null)}
-          </p>
-        )}
-      </div>
-    </section>
-  );
-});
-
 export function App() {
   const { dataset, dataError, countiesLoading, countiesError, loadCounties } = useTerrainData();
   const elevationSampler = useMemo(
     () => dataset ? createTerrainElevationSampler(dataset.metadata) : null,
     [dataset?.metadata],
   );
-  const nationalParkData = useBoundaryFeatureData(
-    "/data/boundaries/national_parks.zip",
-    "National park",
-    "UNIT_CODE",
-    "UNIT_NAME",
-  );
-  const nationalForestData = useBoundaryFeatureData(
-    "/data/boundaries/national_forests.zip",
-    "National forest",
-    "forestorgc",
-    "forestname",
-  );
   const [settings, setSettings] = useState(INITIAL_SETTINGS);
-  const ecoregionData = useEcoregionData();
-  const {
-    texture: ecoregionMapTexture,
-    loading: ecoregionMapLoading,
-    error: ecoregionMapError,
-  } = useEcoregionMapTexture(settings.regionMap);
-  useEffect(() => {
-    if (settings.regionMap !== "none") void ecoregionData.load();
-  }, [ecoregionData.load, settings.regionMap]);
   const [welcomeOpen, setWelcomeOpen] = useState(true);
   const dismissWelcome = useCallback(() => setWelcomeOpen(false), []);
   const [topographicSelections, setTopographicSelections] =
     useState<TopographicFeatureSelections>(INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS);
   const [clipSelections, setClipSelections] =
     useState<ClipFeatureSelections>(INITIAL_CLIP_FEATURE_SELECTIONS);
-  const [terrainExportBusy, setTerrainExportBusy] = useState(false);
-  const [terrainExportStatus, setTerrainExportStatus] = useState<string | null>(null);
-  const [terrainExportError, setTerrainExportError] = useState<string | null>(null);
-  const [terrainExportTriangleReport, setTerrainExportTriangleReport] =
-    useState<TerrainExportTriangleReport | null>(null);
   const [exportFormat, setExportFormat] = useState<"image" | "model">("model");
   const [resolutionIndex, setResolutionIndex] = useState(1);
   const [selectedImageRegionId, setSelectedImageRegionId] = useState<string | null>(null);
   const [heightPalette, setHeightPalette] = useState<TerrainHeightPalette>("grayscale");
-  const [highwayDataRequested, setHighwayDataRequested] = useState(false);
-  const [railwayDataRequested, setRailwayDataRequested] = useState(false);
-  const [riverDataRequested, setRiverDataRequested] = useState(false);
-  const [mountainDataRequested, setMountainDataRequested] = useState(false);
-  const { features: highwayFeatures, loading: highwayLoading, error: highwayError } =
-    useHighwayData(
-      highwayDataRequested ||
-      topographicSelections.highways.length > 0 ||
-      topographicSelections.interstates.length > 0,
-    );
-  const { features: railwayFeatures, loading: railwayLoading, error: railwayError } =
-    useRailwayData(
-      railwayDataRequested || topographicSelections.railways.length > 0,
-    );
-  const { features: riverFeatures, loading: riverLoading, error: riverError } =
-    useRiverData(
-      riverDataRequested || topographicSelections.rivers.length > 0,
-    );
-  const { peaks, loading: mountainLoading, error: mountainError } =
-    useMountainData(mountainDataRequested || topographicSelections.peaks.length > 0);
-  const customMountainData = useCustomMountainPeaks();
-  const allMountainPeaks = useMemo(
-    () => [...peaks, ...customMountainData.peaks],
-    [customMountainData.peaks, peaks],
-  );
-  const longitudeLatitudeGrid = dataset?.longitudeLatitudeGrid ?? null;
-  const topographicOptions = useMemo<Record<TopographicFeatureCategory, TopographicFeatureOption[]>>(() => {
-    const routeOptions = (routeType: "highways" | "interstates") => {
-      const options = highwayFeatures
-        ? getHighwayRouteNumbers(
-          highwayFeatures,
-          routeType === "highways" ? "highway" : "interstate",
-        )
-        : [];
-      return options.map((number) => ({
-        id: number,
-        label: routeType === "highways" ? `CA ${number}` : `I-${number}`,
-        lines: highwayFeatures
-          ? getHighwayRouteLines(
-            highwayFeatures,
-            routeType === "highways" ? "highway" : "interstate",
-            number,
-          )
-          : [],
-      }));
-    };
-    const countyOptions = dataset?.counties?.features.map((feature) => ({
-      id: countyId(feature),
-      label: countyName(feature),
-      geometry: feature.geometry,
-    })) ?? [];
-    countyOptions.sort((left, right) => left.label.localeCompare(right.label));
-    return {
-      highways: routeOptions("highways"),
-      interstates: routeOptions("interstates"),
-      counties: countyOptions,
-      peaks: allMountainPeaks.map((peak) => ({
-        id: peak.id,
-        label: peak.name,
-        detail: [
-          peak.range,
-          peak.elevationMeters === undefined
-            ? "Elevation unknown"
-            : formatElevation(peak.elevationMeters, settings.measurementSystem),
-        ].filter(Boolean).join(" · "),
-        custom: peak.custom,
-        position: peak.position,
-        elevationMeters: peak.elevationMeters,
-        prominenceMeters: peak.prominenceMeters,
-        isolationKm: peak.isolationKm,
-      })),
-      nationalParks: nationalParkData.options,
-      nationalForests: nationalForestData.options,
-      longitudeLatitudeLines: (longitudeLatitudeGrid?.features ?? []).map((feature) => ({
-        id: longitudeLatitudeCellId(feature),
-        label: String(feature.properties.name ?? ""),
-        geometry: feature.geometry,
-      })),
-      railways: railwayFeatures ? getRailwayFeatureOptions(railwayFeatures) : [],
-      rivers: riverFeatures ? getRiverFeatureOptions(riverFeatures) : [],
-      ecoregions: ecoregionData.options,
-    };
-  }, [
-    allMountainPeaks,
+  const featureData = useFeatureData({
     dataset,
-    ecoregionData.options,
+    settings,
+    countiesLoading,
+    countiesError,
+    dataError,
+    loadCounties,
+    topographicSelections,
+  });
+  const {
+    allMountainPeaks,
+    customMountainData,
+    ecoregionData,
+    ecoregionMapTexture,
     highwayFeatures,
-    longitudeLatitudeGrid,
-    nationalForestData.options,
-    nationalParkData.options,
+    nationalForestData,
+    nationalParkData,
     railwayFeatures,
     riverFeatures,
-    settings.measurementSystem,
-  ]);
-  const topographicStatus = useMemo(() => ({
-    highways: { loading: highwayLoading, error: highwayError },
-    interstates: { loading: highwayLoading, error: highwayError },
-    counties: { loading: countiesLoading, error: countiesError },
-    peaks: { loading: mountainLoading, error: mountainError },
-    nationalParks: { loading: nationalParkData.loading, error: nationalParkData.error },
-    nationalForests: { loading: nationalForestData.loading, error: nationalForestData.error },
-    longitudeLatitudeLines: { loading: !dataset, error: dataError },
-    railways: { loading: railwayLoading, error: railwayError },
-    rivers: { loading: riverLoading, error: riverError },
-    ecoregions: {
-      loading: ecoregionData.loading || ecoregionMapLoading,
-      error: ecoregionData.error ?? ecoregionMapError,
-    },
-  }), [
-    countiesError,
-    countiesLoading,
-    dataError,
-    dataset,
-    ecoregionData.error,
-    ecoregionData.loading,
-    ecoregionMapError,
-    ecoregionMapLoading,
-    highwayError,
-    highwayLoading,
-    mountainError,
-    mountainLoading,
-    nationalForestData.error,
-    nationalForestData.loading,
-    nationalParkData.error,
-    nationalParkData.loading,
-    railwayError,
-    railwayLoading,
-    riverError,
-    riverLoading,
-  ]);
+    topographicOptions,
+    topographicStatus,
+    requestTopographicData,
+  } = featureData;
+  const longitudeLatitudeGrid = dataset?.longitudeLatitudeGrid ?? null;
   const [regions, setRegions] = useState<Region[]>([]);
+  const {
+    clipExportRegions,
+    combinedImageRegion,
+    exportClipRegions,
+    exportImage,
+    exportTerrain,
+    preparedTerrainExportRegions,
+    terrainExportBusy,
+    terrainExportError,
+    terrainExportGroundScale,
+    terrainExportStatus,
+    terrainExportTriangleReport,
+  } = useTerrainExports({
+    dataset,
+    regions,
+    clipSelections,
+    topographicOptions,
+    nationalParkFeatures: nationalParkData.features,
+    nationalForestFeatures: nationalForestData.features,
+    ecoregionFeatures: ecoregionData.features,
+    settings,
+    heightPalette,
+  });
   const displayRegions = useMemo(
     () => [
       ...regions,
@@ -416,76 +186,11 @@ export function App() {
     ],
     [clipSelections.counties, dataset?.counties, regions, topographicSelections.counties],
   );
-  const clipExportRegions = useMemo(() => {
-    const items = regions
-      .filter((region) =>
-        region.type !== "county" &&
-        region.type !== "point" &&
-        region.type !== "polyline" &&
-        region.clip === true
-      )
-      .map((region) => ({ id: region.id, name: region.name }));
-    const categories: { id: ClipFeatureCategory; prefix: string }[] = [
-      { id: "counties", prefix: "County" },
-      { id: "nationalParks", prefix: "National park" },
-      { id: "nationalForests", prefix: "National forest" },
-      { id: "longitudeLatitudeLines", prefix: "Grid cell" },
-      { id: "ecoregions", prefix: "Ecoregion" },
-    ];
-    for (const { id, prefix } of categories) {
-      for (const selectedId of clipSelections[id]) {
-        const option = topographicOptions[id].find((item) => item.id === selectedId);
-        if (option) {
-          items.push({
-            id: clipFeatureExportRegionId(id, selectedId),
-            name: `${prefix}: ${option.label}`,
-          });
-        }
-      }
-    }
-    return items;
-  }, [clipSelections, regions, topographicOptions]);
-  const preparedTerrainExportData = useMemo(() => {
-    if (!dataset) return { regions: [], californiaPolygons: [] };
-    const boundaryCollection = createRegionBoundaryExport(
-      regions,
-      clipSelections,
-      dataset.metadata.center,
-      dataset.counties,
-      nationalParkData.features,
-      nationalForestData.features,
-      longitudeLatitudeGrid,
-      ecoregionData.features,
-    );
-    return createTerrainExportRegions(
-      boundaryCollection,
-      dataset.state,
-      dataset.metadata.center,
-    );
-  }, [
-    clipSelections,
-    dataset,
-    nationalForestData.features,
-    nationalParkData.features,
-    longitudeLatitudeGrid,
-    ecoregionData.features,
-    regions,
-  ]);
-  const preparedTerrainExportRegions = preparedTerrainExportData.regions;
-  const combinedImageRegion = useMemo(
-    () => preparedTerrainExportRegions.length > 1
-      ? combineTerrainExportRegions(
-        preparedTerrainExportRegions,
-        preparedTerrainExportData.californiaPolygons,
-      )
-      : null,
-    [preparedTerrainExportData.californiaPolygons, preparedTerrainExportRegions],
-  );
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
-  const [shapeOperationPreview, setShapeOperationPreview] =
-    useState<RegionOverlayPreview | null>(null);
-  const updateShapeOperationPreview = useCallback((preview: RegionOverlayPreview | null) => {
-    setShapeOperationPreview((current) => {
+  const [regionOperationPreview, setRegionOperationPreview] =
+    useState<RegionOperationPreview | null>(null);
+  const updateRegionOperationPreview = useCallback((preview: RegionOperationPreview | null) => {
+    setRegionOperationPreview((current) => {
       if (current === null || preview === null) return current === preview ? current : preview;
       const sameIds = current.highlightedRegionIds.length === preview.highlightedRegionIds.length &&
         current.highlightedRegionIds.every((id, index) => id === preview.highlightedRegionIds[index]);
@@ -598,25 +303,6 @@ export function App() {
     if (preparedTerrainExportRegions.some((region) => region.id === selectedImageRegionId)) return;
     setSelectedImageRegionId(preparedTerrainExportRegions[0]?.id ?? null);
   }, [combinedImageRegion, preparedTerrainExportRegions, selectedImageRegionId]);
-  const requestTopographicData = useCallback((category: TopographicFeatureCategory) => {
-    if (category === "highways" || category === "interstates") {
-      setHighwayDataRequested(true);
-    } else if (category === "counties") {
-      void loadCounties();
-    } else if (category === "peaks") {
-      setMountainDataRequested(true);
-    } else if (category === "nationalParks") {
-      void nationalParkData.load();
-    } else if (category === "nationalForests") {
-      void nationalForestData.load();
-    } else if (category === "railways") {
-      setRailwayDataRequested(true);
-    } else if (category === "rivers") {
-      setRiverDataRequested(true);
-    } else if (category === "ecoregions") {
-      void ecoregionData.load();
-    }
-  }, [ecoregionData.load, loadCounties, nationalForestData.load, nationalParkData.load]);
   const toggleTopographicFeature = useCallback((
     category: TopographicFeatureCategory,
     id: string,
@@ -1655,232 +1341,6 @@ export function App() {
       [category]: current[category].filter((featureId) => featureId !== id),
     }));
   }, [topographicOptions]);
-  const exportClipRegions = useCallback(() => {
-    if (!dataset) return;
-    const collection = createRegionBoundaryExport(
-      regions,
-      clipSelections,
-      dataset.metadata.center,
-      dataset.counties,
-      nationalParkData.features,
-      nationalForestData.features,
-      longitudeLatitudeGrid,
-      ecoregionData.features,
-    );
-    const blob = new Blob([JSON.stringify(collection, null, 2)], {
-      type: "application/geo+json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "california-region-boundaries.geojson";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  }, [
-    clipSelections,
-    dataset,
-    nationalForestData.features,
-    nationalParkData.features,
-    longitudeLatitudeGrid,
-    ecoregionData.features,
-    regions,
-  ]);
-
-  const exportTerrain = useCallback(async (
-    mode: "region" | "zip" | "combined",
-    regionId: string | null,
-    resolutionMeters: number,
-    californiaLatitudeSpanMeters: number,
-  ) => {
-    if (!dataset || terrainExportBusy) return;
-    setTerrainExportBusy(true);
-    setTerrainExportError(null);
-    setTerrainExportTriangleReport(null);
-    setTerrainExportStatus("Preparing clipped terrain…");
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-    try {
-      const boundaryCollection = createRegionBoundaryExport(
-        regions,
-        clipSelections,
-        dataset.metadata.center,
-        dataset.counties,
-        nationalParkData.features,
-        nationalForestData.features,
-        longitudeLatitudeGrid,
-        ecoregionData.features,
-      );
-      const { regions: exportRegions, californiaPolygons } = createTerrainExportRegions(
-        boundaryCollection,
-        dataset.state,
-        dataset.metadata.center,
-      );
-      if (exportRegions.length === 0) {
-        throw new Error("No selected regions intersect California.");
-      }
-      const reportProgress = ({ tileIndex, tileCount, regionName }: TerrainExportProgress) => {
-        setTerrainExportStatus(
-          `Exporting ${regionName} · tile ${tileIndex.toLocaleString("en-US")} of ${tileCount.toLocaleString("en-US")}`,
-        );
-      };
-      const triangleCounts: TerrainExportTriangleReport["pieces"] = [];
-      const createGlb = (region: (typeof exportRegions)[number]) => createTerrainGlb({
-        metadata: dataset.metadata,
-        center: dataset.metadata.center,
-        californiaPolygons,
-        region,
-        resolutionMeters,
-        californiaLatitudeSpanMeters,
-        verticalExaggeration: settings.exaggeration,
-        onProgress: reportProgress,
-        onTriangleCount: (count) =>
-          triangleCounts.push({ id: region.id, name: region.name, count }),
-      });
-
-      if (mode === "region") {
-        const region = regionId === null
-          ? undefined
-          : exportRegions.find((item) => item.id === regionId);
-        if (!region) throw new Error("The requested export region is no longer selected.");
-        setTerrainExportStatus(`Exporting ${region.name}…`);
-        const glb = await createGlb(region);
-        downloadFile(
-          new Blob([glb], { type: "model/gltf-binary" }),
-          terrainExportFilename(region.name),
-        );
-      } else if (mode === "combined") {
-        const combined = combineTerrainExportRegions(exportRegions, californiaPolygons);
-        const glb = await createGlb(combined);
-        downloadFile(
-          new Blob([glb], { type: "model/gltf-binary" }),
-          "california-combined-regions.glb",
-        );
-      } else {
-        const entries: { name: string; content: Uint8Array<ArrayBuffer> }[] = [];
-        const usedNames = new Set<string>();
-        for (let index = 0; index < exportRegions.length; index += 1) {
-          const region = exportRegions[index];
-          if (!region) continue;
-          const glb = new Uint8Array(await createGlb(region));
-          const filename = terrainExportFilename(region.name);
-          let uniqueFilename = filename;
-          let suffix = 2;
-          while (usedNames.has(uniqueFilename)) {
-            uniqueFilename = filename.replace(/\.glb$/, `-${suffix}.glb`);
-            suffix += 1;
-          }
-          usedNames.add(uniqueFilename);
-          entries.push({ name: uniqueFilename, content: glb });
-        }
-        setTerrainExportStatus("Packaging GLB files…");
-        const archive = createStoreZip(entries);
-        downloadFile(archive, "california-region-exports.zip");
-      }
-      setTerrainExportTriangleReport({
-        pieces: triangleCounts,
-        total: triangleCounts.reduce((total, piece) => total + piece.count, 0),
-      });
-    } catch (error) {
-      setTerrainExportError(
-        error instanceof Error ? error.message : "Could not export the selected terrain.",
-      );
-    } finally {
-      setTerrainExportBusy(false);
-      setTerrainExportStatus(null);
-    }
-  }, [
-    clipSelections,
-    dataset,
-    nationalForestData.features,
-    nationalParkData.features,
-    ecoregionData.features,
-    regions,
-    settings.exaggeration,
-    terrainExportBusy,
-  ]);
-
-  const exportImage = useCallback(async (
-    mode: "region" | "zip" | "combined",
-    regionId: string | null,
-    resolutionMeters: number,
-  ) => {
-    if (!dataset || terrainExportBusy) return;
-    setTerrainExportBusy(true);
-    setTerrainExportError(null);
-    setTerrainExportTriangleReport(null);
-    setTerrainExportStatus("Preparing terrain image…");
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-    try {
-      if (preparedTerrainExportRegions.length === 0) {
-        throw new Error("No selected regions intersect California.");
-      }
-      const reportProgress = ({ tileIndex, tileCount, regionName }: TerrainExportProgress) => {
-        setTerrainExportStatus(
-          `Rendering ${regionName} · tile ${tileIndex.toLocaleString("en-US")} of ${tileCount.toLocaleString("en-US")}`,
-        );
-      };
-      const optionsForRegion = (region: TerrainExportRegion) => ({
-        metadata: dataset.metadata,
-        center: dataset.metadata.center,
-        region,
-        resolutionMeters,
-        palette: heightPalette,
-        onProgress: reportProgress,
-      });
-      if (mode === "combined") {
-        if (!combinedImageRegion) {
-          throw new Error("At least two cut regions are required for a combined image.");
-        }
-        const canvas = await createTerrainImageCanvas(optionsForRegion(combinedImageRegion));
-        const blob = await canvasToPng(canvas);
-        downloadFile(blob, "california-combined-regions.png");
-      } else if (mode === "region") {
-        const region = regionId === null
-          ? undefined
-          : preparedTerrainExportRegions.find((item) => item.id === regionId);
-        if (!region) throw new Error("The requested export region is no longer selected.");
-        const canvas = await createTerrainImageCanvas(optionsForRegion(region));
-        const blob = await canvasToPng(canvas);
-        downloadFile(blob, terrainExportFilename(region.name).replace(/\.glb$/, ".png"));
-      } else {
-        const entries: { name: string; content: Uint8Array<ArrayBuffer> }[] = [];
-        const usedNames = new Set<string>();
-        for (const region of preparedTerrainExportRegions) {
-          const canvas = await createTerrainImageCanvas(optionsForRegion(region));
-          const blob = await canvasToPng(canvas);
-          const filename = terrainExportFilename(region.name).replace(/\.glb$/, ".png");
-          let uniqueFilename = filename;
-          let suffix = 2;
-          while (usedNames.has(uniqueFilename)) {
-            uniqueFilename = filename.replace(/\.png$/, `-${suffix}.png`);
-            suffix += 1;
-          }
-          usedNames.add(uniqueFilename);
-          entries.push({
-            name: uniqueFilename,
-            content: new Uint8Array(await blob.arrayBuffer()),
-          });
-        }
-        setTerrainExportStatus("Packaging PNG files…");
-        downloadFile(createStoreZip(entries), "california-region-images.zip");
-      }
-    } catch (error) {
-      setTerrainExportError(
-        error instanceof Error ? error.message : "Could not export the selected terrain image.",
-      );
-    } finally {
-      setTerrainExportBusy(false);
-      setTerrainExportStatus(null);
-    }
-  }, [
-    combinedImageRegion,
-    dataset,
-    heightPalette,
-    preparedTerrainExportRegions,
-    terrainExportBusy,
-  ]);
-
   const currentCoordinates = dataset
     ? formatCoordinates([
       dataset.metadata.center[0] + view.target[0] * 1_000,
@@ -1944,14 +1404,14 @@ export function App() {
       <section className={`workspace${mobileSidebarOpen ? " is-mobile-sidebar-open" : ""}`}>
         <Sidebar settings={settings} onSettingsChange={setSettings}
           regions={displayRegions} center={dataset?.metadata.center ?? null}
-          selectedId={selectedRegionId}
+          selectedRegionId={selectedRegionId}
           clipExportRegions={clipExportRegions} canExportClipRegions={dataset !== null}
           onExportClipRegions={exportClipRegions}
           terrainExportBusy={terrainExportBusy}
           terrainExportStatus={terrainExportStatus}
           terrainExportError={terrainExportError}
           terrainExportRegions={preparedTerrainExportRegions}
-          terrainExportGroundScale={dataset ? getTerrainGroundScale(dataset.metadata.center) : 1}
+          terrainExportGroundScale={terrainExportGroundScale}
           terrainExportTriangleReport={terrainExportTriangleReport}
           onExportTerrainRegion={(id, resolution, latitudeSpan) =>
             void exportTerrain("region", id, resolution, latitudeSpan)}
@@ -1989,7 +1449,7 @@ export function App() {
           onClipPolyline={clipPolylineRegion}
           onConnectPolylines={connectPolylineRegions}
           onCombineRegions={combineRegions}
-          onShapePreviewChange={updateShapeOperationPreview}
+          onRegionPreviewChange={updateRegionOperationPreview}
           onFocusRegion={focusRegion}
           onFocusFeature={focusFeature}
           nearbyShapes={nearbyShapes}
@@ -2022,7 +1482,7 @@ export function App() {
             nationalParks={nationalParkData.features}
             nationalForests={nationalForestData.features}
             longitudeLatitudeLines={longitudeLatitudeGrid}
-            mountains={allMountainPeaks}
+            mountainPeaks={allMountainPeaks}
             topographicSelections={topographicSelections}
             clipSelections={clipSelections}
             imageExportPreview={false}
@@ -2030,14 +1490,14 @@ export function App() {
             onToggleTerrain={() => setTerrainVisible((visible) => !visible)}
             stageRef={stageRef} viewRef={viewRef}
             view={view} settings={settings} regions={displayRegions} selectedRegionId={selectedRegionId}
-            shapeOperationPreview={shapeOperationPreview}
+            regionOperationPreview={regionOperationPreview}
             onCameraReady={registerCamera} onInvalidateReady={registerInvalidate}
-            onHandlePositions={registerRegionHandles}
+            onRegionHandlesChange={registerRegionHandles}
             onTerrainRaycastReady={registerTerrainRaycast}
             isPlacingCustomPoint={placingCustomPoint}
             isRightPanning={isRightPanning}
             centerTerrainElevationRef={centerTerrainElevationRef}
-            onPointElevationChange={updatePointElevation}
+            onRegionPointElevationChange={updatePointElevation}
             onPointerDown={handlePointerDown} onWheel={handleWheel}
             onZoom={changeZoom} onReset={() => syncView(INITIAL_VIEW, true)}
             coordinates={currentCoordinates} scaleKm={scaleKm}

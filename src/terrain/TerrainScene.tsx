@@ -3,23 +3,23 @@ import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef } f
 import { Vector3, type Camera, type Texture } from "three";
 import { countyId, featureRings, toLocal } from "../geo";
 import { longitudeLatitudeCellId } from "../longitudeLatitudeGrid";
-import { RegionOverlay, type TerrainLineLayer } from "../RegionOverlay";
+import { TerrainOverlays, type TerrainDrapedLineLayer } from "../TerrainOverlays";
 import {
   createHighwayShields,
   getHighwayLines,
   type HighwayFeatureCollection,
-} from "../highways";
-import type { MountainPeak } from "../mountains";
-import type { RailwayFeatureCollection } from "../railways";
-import type { RiverFeatureCollection } from "../rivers";
+} from "../features/highways";
+import type { MountainPeak } from "../features/mountains";
+import type { RailwayFeatureCollection } from "../features/railways";
+import type { RiverFeatureCollection } from "../features/rivers";
 import type { TerrainExportBoundingBox } from "./terrainExport";
 import type { TerrainRaycast } from "./terrainRaycast";
-import type { EcoregionMapMetadata } from "./ecoregions";
+import type { EcoregionMapMetadata } from "../features/ecoregions";
 import {
   boundaryFeatureClipPolygons,
   regionClipPolygons as getRegionClipPolygons,
   type RegionHandle,
-} from "../regions";
+} from "../regions/geometry";
 import { TerrainTiles } from "./Terrain";
 import {
   getStateBoundaryClipPolygons,
@@ -31,7 +31,7 @@ import type {
   Dataset,
   Position,
   Region,
-  RegionOverlayPreview,
+  RegionOperationPreview,
   Tile,
   TopographicFeatureSelections,
   ClipFeatureSelections,
@@ -114,13 +114,13 @@ export function TerrainScene({
   nationalParks,
   nationalForests,
   longitudeLatitudeLines,
-  mountains,
+  mountainPeaks,
   topographicSelections,
   clipSelections,
   onCameraReady,
   onInvalidateReady,
-  onHandlePositions,
-  onPointElevationChange,
+  onRegionHandlesChange,
+  onRegionPointElevationChange,
   onTerrainRaycastReady,
   terrainVisible,
   viewRef,
@@ -128,7 +128,7 @@ export function TerrainScene({
   settings,
   regions,
   selectedRegionId,
-  shapeOperationPreview,
+  regionOperationPreview,
   view,
   imageExportPreview,
   exportBounds,
@@ -143,13 +143,13 @@ export function TerrainScene({
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
-  mountains: MountainPeak[];
+  mountainPeaks: MountainPeak[];
   topographicSelections: TopographicFeatureSelections;
   clipSelections: ClipFeatureSelections;
   onCameraReady: (camera: Camera | null) => void;
   onInvalidateReady: (invalidate: (() => void) | null) => void;
-  onHandlePositions: (handles: RegionHandle[]) => void;
-  onPointElevationChange: (id: string, elevationMeters: number) => void;
+  onRegionHandlesChange: (handles: RegionHandle[]) => void;
+  onRegionPointElevationChange: (id: string, elevationMeters: number) => void;
   onTerrainRaycastReady: (raycast: TerrainRaycast | null) => void;
   terrainVisible: boolean;
   viewRef: { current: ViewState };
@@ -157,7 +157,7 @@ export function TerrainScene({
   settings: ViewSettings;
   regions: Region[];
   selectedRegionId: string | null;
-  shapeOperationPreview: RegionOverlayPreview | null;
+  regionOperationPreview: RegionOperationPreview | null;
   view: ViewState;
   imageExportPreview: boolean;
   exportBounds: TerrainExportBoundingBox[];
@@ -215,10 +215,10 @@ export function TerrainScene({
     ]),
     [topographicSelections.highways, topographicSelections.interstates],
   );
-  const selectedMountains = useMemo(() => {
+  const selectedMountainPeaks = useMemo(() => {
     const selected = new Set(topographicSelections.peaks);
-    return mountains.filter((peak) => selected.has(peak.id));
-  }, [mountains, topographicSelections.peaks]);
+    return mountainPeaks.filter((peak) => selected.has(peak.id));
+  }, [mountainPeaks, topographicSelections.peaks]);
   const regionClipPolygons = useMemo(() => {
     if (!settings.clip && !imageExportPreview) return null;
     return [
@@ -271,81 +271,81 @@ export function TerrainScene({
     () => intersectStateWithRegions(stateBorderPolygons, regionClipPolygons),
     [regionClipPolygons, stateBorderPolygons],
   );
-  const boundaryLines = useMemo<TerrainLineLayer[]>(() => [
+  const boundaryLines = useMemo<TerrainDrapedLineLayer[]>(() => [
     ...(selectedCountyIds.size > 0
       ? [{
-          id: "county-borders",
-          lines: counties.features
-            .filter((feature) => selectedCountyIds.has(countyId(feature)))
-            .flatMap((feature) =>
+        id: "county-borders",
+        lines: counties.features
+          .filter((feature) => selectedCountyIds.has(countyId(feature)))
+          .flatMap((feature) =>
             featureRings(feature).map((ring) =>
               ring.map((point) => toLocal(point, data.metadata.center))
             )
           ),
-          color: "#21918c",
-          lineWidth: 1.5,
-          opacity: 0.72,
-        }]
+        color: "#21918c",
+        lineWidth: 1.5,
+        opacity: 0.72,
+      }]
       : []),
     ...(longitudeLatitudeLines && selectedLongitudeLatitudeCellIds.size > 0
       ? [{
-          id: "longitude-latitude-lines",
-          lines: longitudeLatitudeLines.features
-            .filter((feature) => selectedLongitudeLatitudeCellIds.has(longitudeLatitudeCellId(feature)))
-            .flatMap((feature) =>
-              featureRings(feature).map((ring) =>
-                ring.map((point) => toLocal(point, data.metadata.center))
-              )
-            ),
-          color: "#7fb4c5",
-          lineWidth: 1.3,
-          opacity: 0.78,
-        }]
+        id: "longitude-latitude-lines",
+        lines: longitudeLatitudeLines.features
+          .filter((feature) => selectedLongitudeLatitudeCellIds.has(longitudeLatitudeCellId(feature)))
+          .flatMap((feature) =>
+            featureRings(feature).map((ring) =>
+              ring.map((point) => toLocal(point, data.metadata.center))
+            )
+          ),
+        color: "#7fb4c5",
+        lineWidth: 1.3,
+        opacity: 0.78,
+      }]
       : []),
     ...(nationalParks && selectedNationalParkIds.size > 0
       ? [{
-          id: "national-park-borders",
-          lines: nationalParks.features
-            .filter((feature) => selectedNationalParkIds.has(String(feature.properties.UNIT_CODE).trim()))
-            .flatMap((feature) =>
-              featureRings(feature).map((ring) =>
-                ring.map((point) => toLocal(point, data.metadata.center))
-              )
-            ),
-          color: "#b99adc",
-          lineWidth: 1.8,
-          opacity: 0.9,
-        }]
+        id: "national-park-borders",
+        lines: nationalParks.features
+          .filter((feature) => selectedNationalParkIds.has(String(feature.properties.UNIT_CODE).trim()))
+          .flatMap((feature) =>
+            featureRings(feature).map((ring) =>
+              ring.map((point) => toLocal(point, data.metadata.center))
+            )
+          ),
+        color: "#b99adc",
+        lineWidth: 1.8,
+        opacity: 0.9,
+      }]
       : []),
     ...(nationalForests && selectedNationalForestIds.size > 0
       ? [{
-          id: "national-forest-borders",
-          lines: nationalForests.features
-            .filter((feature) => selectedNationalForestIds.has(String(feature.properties.forestorgc).trim()))
-            .flatMap((feature) =>
-              featureRings(feature).map((ring) =>
-                ring.map((point) => toLocal(point, data.metadata.center))
-              )
-            ),
-          color: "#80b7a0",
-          lineWidth: 1.8,
-          opacity: 0.9,
-        }]
+        id: "national-forest-borders",
+        lines: nationalForests.features
+          .filter((feature) => selectedNationalForestIds.has(String(feature.properties.forestorgc).trim()))
+          .flatMap((feature) =>
+            featureRings(feature).map((ring) =>
+              ring.map((point) => toLocal(point, data.metadata.center))
+            )
+          ),
+        color: "#80b7a0",
+        lineWidth: 1.8,
+        opacity: 0.9,
+      }]
       : []),
     ...(ecoregions && selectedEcoregionIds.size > 0
       ? [{
-          id: "ecoregion-borders",
-          lines: ecoregions.features
-            .filter((feature) => selectedEcoregionIds.has(String(feature.properties.US_L4CODE).trim()))
-            .flatMap((feature) =>
-              featureRings(feature).map((ring) =>
-                ring.map((point) => toLocal(point, data.metadata.center))
-              )
-            ),
-          color: "#d8bd68",
-          lineWidth: 1.8,
-          opacity: 0.9,
-        }]
+        id: "ecoregion-borders",
+        lines: ecoregions.features
+          .filter((feature) => selectedEcoregionIds.has(String(feature.properties.US_L4CODE).trim()))
+          .flatMap((feature) =>
+            featureRings(feature).map((ring) =>
+              ring.map((point) => toLocal(point, data.metadata.center))
+            )
+          ),
+        color: "#d8bd68",
+        lineWidth: 1.8,
+        opacity: 0.9,
+      }]
       : []),
   ], [
     counties.features,
@@ -363,26 +363,26 @@ export function TerrainScene({
   const highwayLines = useMemo(
     () => highwayFeatures
       ? getHighwayLines(
-          highwayFeatures,
-          data.metadata.center,
-          "highway",
-          selectedHighwayNumbers,
-        )
+        highwayFeatures,
+        data.metadata.center,
+        "highway",
+        selectedHighwayNumbers,
+      )
       : [],
     [data.metadata.center, highwayFeatures, selectedHighwayNumbers],
   );
   const interstateLines = useMemo(
     () => highwayFeatures
       ? getHighwayLines(
-          highwayFeatures,
-          data.metadata.center,
-          "interstate",
-          selectedInterstateNumbers,
-        )
+        highwayFeatures,
+        data.metadata.center,
+        "interstate",
+        selectedInterstateNumbers,
+      )
       : [],
     [data.metadata.center, highwayFeatures, selectedInterstateNumbers],
   );
-  const railwayLineLayers = useMemo<TerrainLineLayer[]>(() => {
+  const railwayLineLayers = useMemo<TerrainDrapedLineLayer[]>(() => {
     if (!railwayFeatures || selectedRailwayNames.size === 0) return [];
     const lines = railwayFeatures.features
       .filter((feature) => selectedRailwayNames.has(feature.properties.name))
@@ -394,15 +394,15 @@ export function TerrainScene({
       .map((line) => line.map((position) => toLocal(position, data.metadata.center)));
     return lines.length > 0
       ? [{
-          id: "railways",
-          lines,
-          color: "#d3a94a",
-          lineWidth: 2,
-          opacity: 0.9,
-        }]
+        id: "railways",
+        lines,
+        color: "#d3a94a",
+        lineWidth: 2,
+        opacity: 0.9,
+      }]
       : [];
   }, [data.metadata.center, railwayFeatures, selectedRailwayNames]);
-  const riverLineLayers = useMemo<TerrainLineLayer[]>(() => {
+  const riverLineLayers = useMemo<TerrainDrapedLineLayer[]>(() => {
     if (!riverFeatures || selectedRiverNames.size === 0) return [];
     const lines = riverFeatures.features
       .filter((feature) => selectedRiverNames.has(feature.properties.name))
@@ -414,34 +414,34 @@ export function TerrainScene({
       .map((line) => line.map((position) => toLocal(position, data.metadata.center)));
     return lines.length > 0
       ? [{
-          id: "rivers",
-          lines,
-          color: "#56a8c8",
-          lineWidth: 1.8,
-          opacity: 0.9,
-        }]
+        id: "rivers",
+        lines,
+        color: "#56a8c8",
+        lineWidth: 1.8,
+        opacity: 0.9,
+      }]
       : [];
   }, [data.metadata.center, riverFeatures, selectedRiverNames]);
-  const routeLines = useMemo<TerrainLineLayer[]>(() => [
+  const routeLines = useMemo<TerrainDrapedLineLayer[]>(() => [
     ...riverLineLayers,
     ...railwayLineLayers,
     ...(selectedHighwayNumbers.size > 0
       ? [{
-          id: "california-highways",
-          lines: highwayLines,
-          color: "#77b887",
-          lineWidth: 1.8,
-          opacity: 0.9,
-        }]
+        id: "california-highways",
+        lines: highwayLines,
+        color: "#77b887",
+        lineWidth: 1.8,
+        opacity: 0.9,
+      }]
       : []),
     ...(selectedInterstateNumbers.size > 0
       ? [{
-          id: "interstates",
-          lines: interstateLines,
-          color: "#d97770",
-          lineWidth: 2.2,
-          opacity: 0.95,
-        }]
+        id: "interstates",
+        lines: interstateLines,
+        color: "#d97770",
+        lineWidth: 2.2,
+        opacity: 0.95,
+      }]
       : []),
   ], [
     highwayLines,
@@ -451,7 +451,7 @@ export function TerrainScene({
     selectedHighwayNumbers,
     selectedInterstateNumbers,
   ]);
-  const exportBoxLines = useMemo<TerrainLineLayer[]>(() => exportBounds.map((box) => ({
+  const exportBoxLines = useMemo<TerrainDrapedLineLayer[]>(() => exportBounds.map((box) => ({
     id: `export-bounds-${box.id}`,
     lines: [box.outline],
     color: "#f5f2e8",
@@ -518,25 +518,25 @@ export function TerrainScene({
         </Suspense>
       </group>
       <Suspense fallback={null}>
-        <RegionOverlay
-          regions={imageExportPreview ? [] : regions}
-          selectedId={imageExportPreview ? null : selectedRegionId}
-          shapeOperationPreview={imageExportPreview ? null : shapeOperationPreview}
+        <TerrainOverlays
+          mapRegions={imageExportPreview ? [] : regions}
+          selectedRegionId={imageExportPreview ? null : selectedRegionId}
+          regionOperationPreview={imageExportPreview ? null : regionOperationPreview}
           center={data.metadata.center}
-          counties={counties}
-          boundaryLines={overlayBoundaryLines}
-          routeShields={imageExportPreview ? [] : routeShields}
-          mountains={imageExportPreview ? [] : selectedMountains}
-          showPeaks={!imageExportPreview && selectedMountains.length > 0}
-          viewTarget={view.target}
+          countyBoundaries={counties}
+          drapedLineLayers={overlayBoundaryLines}
+          highwayRouteShields={imageExportPreview ? [] : routeShields}
+          mountainPeaks={imageExportPreview ? [] : selectedMountainPeaks}
+          showMountainPeaks={!imageExportPreview && selectedMountainPeaks.length > 0}
+          cameraTarget={view.target}
           showHighways={!imageExportPreview && selectedHighwayNumbers.size > 0}
           showInterstates={!imageExportPreview && selectedInterstateNumbers.size > 0}
-          distance={view.distance}
-          exaggeration={settings.exaggeration}
+          cameraDistance={view.distance}
+          verticalExaggeration={settings.exaggeration}
           measurementSystem={settings.measurementSystem}
-          tiles={deferredTiles}
-          onHandlePositions={onHandlePositions}
-          onPointElevationChange={onPointElevationChange}
+          terrainTiles={deferredTiles}
+          onRegionHandlesChange={onRegionHandlesChange}
+          onRegionPointElevationChange={onRegionPointElevationChange}
           onTerrainRaycastReady={onTerrainRaycastReady}
         />
       </Suspense>

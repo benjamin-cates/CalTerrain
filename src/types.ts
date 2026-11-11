@@ -133,7 +133,7 @@ export type Region =
   | (RegionBase & { type: "polyline"; points: Position[] })
   | (RegionBase & { type: "county"; countyId: string });
 
-export type RegionOverlayPreview = {
+export type RegionOperationPreview = {
   lines: Position[][];
   markerPositions: Position[];
   highlightedRegionIds: string[];

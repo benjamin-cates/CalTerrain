@@ -1,0 +1,164 @@
+.controls-sidebar {
+  display: block;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 14px;
+}
+
+.control-section {
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.control-section + .control-section {
+  padding-top: 12px;
+}
+
+.control-section summary {
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.control-section summary span {
+  margin-right: 9px;
+  color: var(--accent);
+}
+
+.control-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.control-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.control-field-inline > span {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.control-field-inline strong {
+  min-width: 5ch;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.control-field-inline input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.control-field strong {
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.control-field small,
+.control-note,
+.control-toggle small {
+  color: #e5e5e5;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.control-note {
+  display: block;
+  margin-top: 8px;
+}
+
+.control-field input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.control-field input[type="color"] {
+  width: 100%;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  background: #1d2723;
+  cursor: pointer;
+}
+
+.control-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  color: #ffffff;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(224, 225, 209, 0.06);
+}
+
+.control-toggle small {
+  display: block;
+}
+
+.control-toggle input {
+  accent-color: var(--accent);
+}
+
+.field-pair,
+.region-add {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.control-field input:not([type="range"]):not([type="color"]),
+.number-field input,
+.control-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid rgba(224, 225, 209, 0.18);
+  border-radius: 2px;
+  background: #1c2522;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.region-add {
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+
+.control-section button {
+  padding: 7px;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.06);
+  color: #ffffff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.control-section button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+

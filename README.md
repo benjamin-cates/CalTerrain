@@ -96,6 +96,13 @@ The browser loads generated files from `/data/...`, served from `public/data`.
 Raw USGS rasters remain in `data_sources` and are not copied into the browser
 bundle.
 
+## Regenerate feature data
+
+The inputs, generated outputs, and refresh commands for boundaries, terrain,
+ecoregions, rail routes, and rivers are documented in
+[docs/data-generation.md](./docs/data-generation.md). It also identifies
+imported public assets that do not yet have a checked-in regeneration script.
+
 ## Test and build
 
 ```sh

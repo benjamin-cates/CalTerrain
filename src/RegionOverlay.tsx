@@ -11,9 +11,9 @@ import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import type { Texture } from "three";
 import { toLocal, WORLD_METERS } from "./geo";
-import { regionGeometry } from "./regions";
-import type { RegionHandle } from "./regions";
-import { MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM, type MountainPeak } from "./mountains";
+import { regionGeometry } from "./regions/geometry";
+import type { RegionHandle } from "./regions/geometry";
+import { MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM, type MountainPeak } from "./features/mountains";
 import {
   sampleTerrainMeshElevation,
   TERRAIN_TILE_MESH_SEGMENTS,
@@ -33,13 +33,13 @@ import {
   HIGHWAY_SHIELD_VISIBILITY_DISTANCE_KM,
   highwayShieldStrideForDistance,
   type HighwayShield,
-} from "./highways";
+} from "./features/highways";
 import type {
   BoundaryCollection,
   MeasurementSystem,
   Position,
   Region,
-  RegionOverlayPreview,
+  RegionOperationPreview,
   Tile,
 } from "./types";
 import { formatElevation } from "./units";
@@ -58,7 +58,7 @@ const pointElevationTextures = new Map<string, CanvasTexture>();
 let pointMarkerTexture: CanvasTexture | null = null;
 const POINT_ELEVATION_LABEL_DISTANCE_KM = 800;
 
-export type TerrainLineLayer = {
+export type TerrainDrapedLineLayer = {
   id: string;
   lines: Position[][];
   color: string;
@@ -258,14 +258,14 @@ function getPointMarkerTexture(): CanvasTexture {
 function CustomPointMarker({
   position,
   elevationMeters,
-  exaggeration,
-  distance,
+  verticalExaggeration,
+  cameraDistance,
   measurementSystem,
 }: {
   position: Position;
   elevationMeters: number;
-  exaggeration: number;
-  distance: number;
+  verticalExaggeration: number;
+  cameraDistance: number;
   measurementSystem: MeasurementSystem;
 }) {
   const texture = useMemo(
@@ -273,9 +273,9 @@ function CustomPointMarker({
     [elevationMeters, measurementSystem],
   );
   const markerTexture = useMemo(() => getPointMarkerTexture(), []);
-  const groundHeight = elevationMeters * exaggeration / 1_000;
-  const markerSize = Math.max(0.175, Math.min(15, distance * 0.00375));
-  const labelHeight = distance * 0.015;
+  const groundHeight = elevationMeters * verticalExaggeration / 1_000;
+  const markerSize = Math.max(0.175, Math.min(15, cameraDistance * 0.00375));
+  const labelHeight = cameraDistance * 0.015;
   return (
     <>
       <sprite
@@ -286,7 +286,7 @@ function CustomPointMarker({
       >
         <spriteMaterial map={markerTexture} transparent depthTest={false} />
       </sprite>
-      {distance <= POINT_ELEVATION_LABEL_DISTANCE_KM && (
+      {cameraDistance <= POINT_ELEVATION_LABEL_DISTANCE_KM && (
         <sprite
           center={[0.5, 0]}
           position={[
@@ -308,25 +308,25 @@ function MountainPeakMarker({
   peak,
   position,
   elevationMeters,
-  exaggeration,
-  distance,
+  verticalExaggeration,
+  cameraDistance,
   measurementSystem,
 }: {
   peak: MountainPeak;
   position: Position;
   elevationMeters: number;
-  exaggeration: number;
-  distance: number;
+  verticalExaggeration: number;
+  cameraDistance: number;
   measurementSystem: MeasurementSystem;
 }) {
   const texture = useMemo(
     () => getMountainTexture(peak, measurementSystem),
     [measurementSystem, peak],
   );
-  const height = elevationMeters * exaggeration / 1_000 + 0.1;
+  const height = elevationMeters * verticalExaggeration / 1_000 + 0.1;
   const labelHeight = Math.min(
     MAX_MOUNTAIN_LABEL_HEIGHT_KM,
-    distance * MOUNTAIN_LABEL_HEIGHT_PER_DISTANCE,
+    cameraDistance * MOUNTAIN_LABEL_HEIGHT_PER_DISTANCE,
   );
   const labelAspect = texture.image.width / texture.image.height;
   return (
@@ -344,16 +344,16 @@ function MountainPeakMarker({
 function RouteShieldMarker({
   shield,
   height,
-  distance,
+  cameraDistance,
 }: {
   shield: HighwayShield;
   height: number;
-  distance: number;
+  cameraDistance: number;
 }) {
   const texture = useMemo(() => getShieldTexture(shield), [shield.number, shield.type]);
   const size = Math.min(
     MAX_ROUTE_SHIELD_SIZE_KM,
-    distance * ROUTE_SHIELD_SIZE_PER_DISTANCE,
+    cameraDistance * ROUTE_SHIELD_SIZE_PER_DISTANCE,
   );
   const scale: [number, number, number] = shield.type === "highway"
     ? [size * 1.35, size * 0.78, 1]
@@ -549,7 +549,7 @@ function TerrainDrapedLineTile({
   center,
   tile,
   texture,
-  exaggeration,
+  verticalExaggeration,
   color,
   lineWidth,
   opacity,
@@ -558,7 +558,7 @@ function TerrainDrapedLineTile({
   center: Position;
   tile: Tile;
   texture: Texture;
-  exaggeration: number;
+  verticalExaggeration: number;
   color: string;
   lineWidth: number;
   opacity: number;
@@ -575,12 +575,12 @@ function TerrainDrapedLineTile({
   const heightTexture = useMemo(() => getTerrainHeightTexture(texture), [texture]);
   const uniforms = useMemo<TerrainLineShaderUniforms>(
     () => ({
-      ...createTerrainShaderUniforms(heightTexture, tileSizeKm, exaggeration),
+      ...createTerrainShaderUniforms(heightTexture, tileSizeKm, verticalExaggeration),
       uTerrainTileOrigin: { value: new Vector2(tileLeft, tileTop) },
     }),
     [heightTexture, tileLeft, tileSizeKm, tileTop],
   );
-  uniforms.uTerrainExaggeration.value = exaggeration;
+  uniforms.uTerrainExaggeration.value = verticalExaggeration;
   const line = useMemo(() => {
     const material = new LineMaterial({
       color,
@@ -604,72 +604,72 @@ function TerrainDrapedLineTile({
   return <primitive object={line} />;
 }
 
-export function RegionOverlay({
-  regions,
-  selectedId,
-  shapeOperationPreview,
+export function TerrainOverlays({
+  mapRegions,
+  selectedRegionId,
+  regionOperationPreview,
   center,
-  counties,
-  boundaryLines,
-  routeShields,
-  mountains,
-  showPeaks,
-  viewTarget,
+  countyBoundaries,
+  drapedLineLayers,
+  highwayRouteShields,
+  mountainPeaks,
+  showMountainPeaks,
+  cameraTarget,
   showHighways,
   showInterstates,
-  distance,
-  exaggeration,
+  cameraDistance,
+  verticalExaggeration,
   measurementSystem,
-  tiles,
-  onHandlePositions,
+  terrainTiles,
+  onRegionHandlesChange,
   onPointElevationChange,
   onTerrainRaycastReady,
 }: {
-  regions: Region[];
-  selectedId: string | null;
-  shapeOperationPreview: RegionOverlayPreview | null;
+  mapRegions: Region[];
+  selectedRegionId: string | null;
+  regionOperationPreview: RegionOperationPreview | null;
   center: Position;
-  counties: BoundaryCollection;
-  boundaryLines: TerrainLineLayer[];
-  routeShields: HighwayShield[];
-  mountains: MountainPeak[];
-  showPeaks: boolean;
-  viewTarget: Position;
+  countyBoundaries: BoundaryCollection;
+  drapedLineLayers: TerrainDrapedLineLayer[];
+  highwayRouteShields: HighwayShield[];
+  mountainPeaks: MountainPeak[];
+  showMountainPeaks: boolean;
+  cameraTarget: Position;
   showHighways: boolean;
   showInterstates: boolean;
-  distance: number;
-  exaggeration: number;
+  cameraDistance: number;
+  verticalExaggeration: number;
   measurementSystem: MeasurementSystem;
-  tiles: Tile[];
-  onHandlePositions: (handles: RegionHandle[]) => void;
+  terrainTiles: Tile[];
+  onRegionHandlesChange: (handles: RegionHandle[]) => void;
   onPointElevationChange: (id: string, elevationMeters: number) => void;
   onTerrainRaycastReady: (raycast: TerrainRaycast | null) => void;
 }) {
-  const sources = tiles.map((tile) => `/data/terrain/tiles/${tile.z}/${tile.x}/${tile.y}.webp`);
-  const textures = useLoader(TextureLoader, sources);
-  const tileTextures = useMemo(
-    () => new Map<string, Texture>(tiles.flatMap((tile, index) => {
-      const texture = textures[index];
+  const terrainTileUrls = terrainTiles.map((tile) => `/data/terrain/tiles/${tile.z}/${tile.x}/${tile.y}.webp`);
+  const loadedTerrainTextures = useLoader(TextureLoader, terrainTileUrls);
+  const terrainTexturesByTile = useMemo(
+    () => new Map<string, Texture>(terrainTiles.flatMap((tile, index) => {
+      const texture = loadedTerrainTextures[index];
       return texture ? [[`${tile.z}/${tile.x}/${tile.y}`, texture] as const] : [];
     })),
-    [textures, tiles],
+    [loadedTerrainTextures, terrainTiles],
   );
-  const rasterCache = useMemo(
+  const elevationRasterCache = useMemo(
     () => new Map<string, TerrainElevationRaster>(),
-    [tileTextures],
+    [terrainTexturesByTile],
   );
-  const getRaster = useMemo(() => (tile: Tile) => {
+  const getElevationRaster = useMemo(() => (tile: Tile) => {
     const key = `${tile.z}/${tile.x}/${tile.y}`;
-    const cached = rasterCache.get(key);
+    const cached = elevationRasterCache.get(key);
     if (cached) return cached;
-    const texture = tileTextures.get(key);
+    const texture = terrainTexturesByTile.get(key);
     if (!texture) return null;
     const raster = decodeElevationRaster(texture);
-    rasterCache.set(key, raster);
+    elevationRasterCache.set(key, raster);
     return raster;
-  }, [rasterCache, tileTextures]);
-  const sampleElevation = useMemo(() => {
-    const orderedTiles = [...tiles].sort((left, right) => right.z - left.z);
+  }, [elevationRasterCache, terrainTexturesByTile]);
+  const sampleTerrainElevation = useMemo(() => {
+    const orderedTiles = [...terrainTiles].sort((left, right) => right.z - left.z);
 
     return (position: Position): number | null => {
       const mercatorX = center[0] + position[0] * 1_000;
@@ -681,7 +681,7 @@ export function RegionOverlay({
         if (tile.x !== tileX || tile.y !== tileY) continue;
 
         const key = `${tile.z}/${tile.x}/${tile.y}`;
-        const raster = getRaster(tile);
+        const raster = getElevationRaster(tile);
         if (!raster) throw new Error(`Missing elevation texture for tile ${key}.`);
 
         const gridX = ((mercatorX + WORLD_METERS / 2) / tileSize - tileX) * TERRAIN_TILE_MESH_SEGMENTS;
@@ -690,110 +690,110 @@ export function RegionOverlay({
       }
       return null;
     };
-  }, [center, getRaster, tiles]);
-  const raycastTerrain = useMemo<TerrainRaycast>(
-    () => (ray, exaggeration) =>
-      raycastTerrainMeshHit(ray, tiles, center, exaggeration, getRaster),
-    [center, getRaster, tiles],
+  }, [center, getElevationRaster, terrainTiles]);
+  const raycastTerrainMesh = useMemo<TerrainRaycast>(
+    () => (ray, verticalExaggeration) =>
+      raycastTerrainMeshHit(ray, terrainTiles, center, verticalExaggeration, getElevationRaster),
+    [center, getElevationRaster, terrainTiles],
   );
   useEffect(() => {
-    onTerrainRaycastReady(raycastTerrain);
+    onTerrainRaycastReady(raycastTerrainMesh);
     return () => onTerrainRaycastReady(null);
-  }, [onTerrainRaycastReady, raycastTerrain]);
+  }, [onTerrainRaycastReady, raycastTerrainMesh]);
 
-  const overlays = useMemo(() => regions
-    .filter((region) => !shapeOperationPreview?.hiddenRegionIds.includes(region.id))
+  const regionOverlays = useMemo(() => mapRegions
+    .filter((region) => !regionOperationPreview?.hiddenRegionIds.includes(region.id))
     .filter((region) =>
       region.visible !== false ||
-      shapeOperationPreview?.highlightedRegionIds.includes(region.id)
+      regionOperationPreview?.highlightedRegionIds.includes(region.id)
     )
-    .filter((region) => region.type !== "county" || region.id === selectedId)
+    .filter((region) => region.type !== "county" || region.id === selectedRegionId)
     .map((region) => ({
       region,
-      ...regionGeometry(region, center, counties, Math.max(1.5, distance * 0.012)),
-    })), [center, counties, distance, regions, selectedId, shapeOperationPreview]);
-  const localPreviewLines = useMemo(
-    () => (shapeOperationPreview?.lines ?? [])
+      ...regionGeometry(region, center, countyBoundaries, Math.max(1.5, cameraDistance * 0.012)),
+    })), [center, countyBoundaries, cameraDistance, mapRegions, selectedRegionId, regionOperationPreview]);
+  const operationPreviewLinesLocal = useMemo(
+    () => (regionOperationPreview?.lines ?? [])
       .map((line) => line.map((position) => toLocal(position, center))),
-    [center, shapeOperationPreview],
+    [center, regionOperationPreview],
   );
-  const localPreviewMarkers = useMemo(
-    () => (shapeOperationPreview?.markerPositions ?? []).map((position, index) => {
+  const operationPreviewMarkersLocal = useMemo(
+    () => (regionOperationPreview?.markerPositions ?? []).map((position, index) => {
       const localPosition = toLocal(position, center);
       return {
         id: index,
         position: localPosition,
-        height: (sampleElevation(localPosition) ?? 0) * exaggeration / 1_000 + OVERLAY_LIFT_KM,
+        height: (sampleTerrainElevation(localPosition) ?? 0) * verticalExaggeration / 1_000 + OVERLAY_LIFT_KM,
       };
     }),
-    [center, exaggeration, sampleElevation, shapeOperationPreview],
+    [center, verticalExaggeration, sampleTerrainElevation, regionOperationPreview],
   );
-  const handles = useMemo(() => overlays
+  const regionHandlePositions = useMemo(() => regionOverlays
     .filter(({ region }) =>
-      region.id === selectedId &&
-      !shapeOperationPreview?.hiddenHandleIds.includes(region.id)
+      region.id === selectedRegionId &&
+      !regionOperationPreview?.hiddenHandleIds.includes(region.id)
     )
     .flatMap(({ handles: regionHandles }) => regionHandles.map((handle) => ({
       ...handle,
-      height: (sampleElevation(handle.position) ?? 0) * exaggeration / 1_000 + OVERLAY_LIFT_KM,
-    }))), [exaggeration, overlays, sampleElevation, selectedId, shapeOperationPreview]);
-  const customPoints = useMemo(() => regions.flatMap((region) => {
+      height: (sampleTerrainElevation(handle.position) ?? 0) * verticalExaggeration / 1_000 + OVERLAY_LIFT_KM,
+    }))), [verticalExaggeration, regionOverlays, sampleTerrainElevation, selectedRegionId, regionOperationPreview]);
+  const customPointRegions = useMemo(() => mapRegions.flatMap((region) => {
     if (region.type !== "point") return [];
     const position = toLocal(region.position, center);
     return [{
       region,
       position,
-      sampledElevation: sampleElevation(position),
+      sampledElevation: sampleTerrainElevation(position),
     }];
-  }), [center, regions, sampleElevation]);
+  }), [center, mapRegions, sampleTerrainElevation]);
   useEffect(() => {
-    for (const { region, sampledElevation } of customPoints) {
+    for (const { region, sampledElevation } of customPointRegions) {
       if (sampledElevation !== null && sampledElevation !== region.elevationMeters) {
         onPointElevationChange(region.id, sampledElevation);
       }
     }
-  }, [customPoints, onPointElevationChange]);
-  const visibleCustomPoints = customPoints.filter(({ region }) => region.visible !== false);
-  const visibleRouteShields = useMemo(() => {
-    if (distance > HIGHWAY_SHIELD_VISIBILITY_DISTANCE_KM) return [];
-    const visibleRadius = distance * 0.6;
-    const spacingStride = highwayShieldStrideForDistance(distance);
-    return routeShields.filter((shield) =>
+  }, [customPointRegions, onPointElevationChange]);
+  const visiblePointRegions = customPointRegions.filter(({ region }) => region.visible !== false);
+  const visibleHighwayShields = useMemo(() => {
+    if (cameraDistance > HIGHWAY_SHIELD_VISIBILITY_DISTANCE_KM) return [];
+    const visibleRadius = cameraDistance * 0.6;
+    const spacingStride = highwayShieldStrideForDistance(cameraDistance);
+    return highwayRouteShields.filter((shield) =>
       (shield.type === "highway" ? showHighways : showInterstates) &&
       shield.spacingIndex % spacingStride === 0 &&
       Math.hypot(
-        shield.position[0] - viewTarget[0],
-        shield.position[1] - viewTarget[1],
+        shield.position[0] - cameraTarget[0],
+        shield.position[1] - cameraTarget[1],
       ) <= visibleRadius
     );
-  }, [distance, routeShields, showHighways, showInterstates, viewTarget]);
+  }, [cameraDistance, highwayRouteShields, showHighways, showInterstates, cameraTarget]);
   const visibleMountainPeaks = useMemo(() => {
-    if (!showPeaks || distance > MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM) return [];
-    const visibleRadius = distance * 0.6;
-    return mountains.flatMap((peak) => {
+    if (!showMountainPeaks || cameraDistance > MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM) return [];
+    const visibleRadius = cameraDistance * 0.6;
+    return mountainPeaks.flatMap((peak) => {
       const position = toLocal(peak.position, center);
       return Math.hypot(
-        position[0] - viewTarget[0],
-        position[1] - viewTarget[1],
+        position[0] - cameraTarget[0],
+        position[1] - cameraTarget[1],
       ) <= visibleRadius
         ? [{
-            peak,
-            position,
-            elevationMeters: peak.elevationMeters ?? sampleElevation(position) ?? 0,
-          }]
+          peak,
+          position,
+          elevationMeters: peak.elevationMeters ?? sampleTerrainElevation(position) ?? 0,
+        }]
         : [];
     });
-  }, [center, distance, mountains, sampleElevation, showPeaks, viewTarget]);
+  }, [center, cameraDistance, mountainPeaks, sampleTerrainElevation, showMountainPeaks, cameraTarget]);
   useEffect(() => {
-    onHandlePositions(handles);
-    return () => onHandlePositions([]);
-  }, [handles, onHandlePositions]);
+    onRegionHandlesChange(regionHandlePositions);
+    return () => onRegionHandlesChange([]);
+  }, [regionHandlePositions, onRegionHandlesChange]);
 
   return (
     <group>
-      {overlays.map(({ region, lines }) => (
-        tiles.map((tile) => {
-          const texture = tileTextures.get(`${tile.z}/${tile.x}/${tile.y}`);
+      {regionOverlays.map(({ region, lines }) => (
+        terrainTiles.map((tile) => {
+          const texture = terrainTexturesByTile.get(`${tile.z}/${tile.x}/${tile.y}`);
           if (!texture) return null;
           return (
             <TerrainDrapedLineTile
@@ -802,20 +802,20 @@ export function RegionOverlay({
               center={center}
               tile={tile}
               texture={texture}
-              exaggeration={exaggeration}
-              color={shapeOperationPreview?.highlightedRegionIds.includes(region.id)
+              verticalExaggeration={verticalExaggeration}
+              color={regionOperationPreview?.highlightedRegionIds.includes(region.id)
                 ? "#f5c66f"
                 : "#21918c"}
-              lineWidth={shapeOperationPreview?.highlightedRegionIds.includes(region.id)
+              lineWidth={regionOperationPreview?.highlightedRegionIds.includes(region.id)
                 ? 4.5
-                : region.id === selectedId ? 3.5 : 2.5}
-              opacity={shapeOperationPreview?.highlightedRegionIds.includes(region.id) ? 1 : 0.95}
+                : region.id === selectedRegionId ? 3.5 : 2.5}
+              opacity={regionOperationPreview?.highlightedRegionIds.includes(region.id) ? 1 : 0.95}
             />
           );
         })
       ))}
-      {localPreviewLines.flatMap((lines, index) => tiles.map((tile) => {
-        const texture = tileTextures.get(`${tile.z}/${tile.x}/${tile.y}`);
+      {operationPreviewLinesLocal.flatMap((lines, index) => terrainTiles.map((tile) => {
+        const texture = terrainTexturesByTile.get(`${tile.z}/${tile.x}/${tile.y}`);
         if (!texture) return null;
         return (
           <TerrainDrapedLineTile
@@ -824,30 +824,30 @@ export function RegionOverlay({
             center={center}
             tile={tile}
             texture={texture}
-            exaggeration={exaggeration}
-            color={shapeOperationPreview?.lineColor ?? "#d58cff"}
-            lineWidth={shapeOperationPreview?.lineWidth ?? 5}
+            verticalExaggeration={verticalExaggeration}
+            color={regionOperationPreview?.lineColor ?? "#d58cff"}
+            lineWidth={regionOperationPreview?.lineWidth ?? 5}
             opacity={1}
           />
         );
       }))}
-      {localPreviewMarkers.map((marker) => (
+      {operationPreviewMarkersLocal.map((marker) => (
         <mesh
           key={`shape-operation-endpoint-${marker.id}`}
           position={[marker.position[0], marker.height, marker.position[1]]}
           renderOrder={7}
         >
-          <sphereGeometry args={[Math.max(0.15, distance * 0.008), 18, 14]} />
+          <sphereGeometry args={[Math.max(0.15, cameraDistance * 0.008), 18, 14]} />
           <meshBasicMaterial
-            color={shapeOperationPreview?.lineColor ?? "#ffda45"}
+            color={regionOperationPreview?.lineColor ?? "#ffda45"}
             depthTest={false}
             transparent
             opacity={1}
           />
         </mesh>
       ))}
-      {boundaryLines.flatMap((layer) => tiles.map((tile) => {
-        const texture = tileTextures.get(`${tile.z}/${tile.x}/${tile.y}`);
+      {drapedLineLayers.flatMap((layer) => terrainTiles.map((tile) => {
+        const texture = terrainTexturesByTile.get(`${tile.z}/${tile.x}/${tile.y}`);
         if (!texture) return null;
         return (
           <TerrainDrapedLineTile
@@ -856,28 +856,28 @@ export function RegionOverlay({
             center={center}
             tile={tile}
             texture={texture}
-            exaggeration={exaggeration}
+            verticalExaggeration={verticalExaggeration}
             color={layer.color}
             lineWidth={layer.lineWidth}
             opacity={layer.opacity}
           />
         );
       }))}
-      {visibleRouteShields.map((shield) => (
+      {visibleHighwayShields.map((shield) => (
         <RouteShieldMarker
           key={shield.id}
           shield={shield}
-          height={(sampleElevation(shield.position) ?? 0) * exaggeration / 1_000}
-          distance={distance}
+          height={(sampleTerrainElevation(shield.position) ?? 0) * verticalExaggeration / 1_000}
+          cameraDistance={cameraDistance}
         />
       ))}
-      {visibleCustomPoints.map(({ region, position, sampledElevation }) => (
+      {visiblePointRegions.map(({ region, position, sampledElevation }) => (
         <CustomPointMarker
           key={region.id}
           position={position}
           elevationMeters={sampledElevation ?? region.elevationMeters ?? 0}
-          exaggeration={exaggeration}
-          distance={distance}
+          verticalExaggeration={verticalExaggeration}
+          cameraDistance={cameraDistance}
           measurementSystem={measurementSystem}
         />
       ))}
@@ -887,18 +887,18 @@ export function RegionOverlay({
           peak={peak}
           position={position}
           elevationMeters={elevationMeters}
-          exaggeration={exaggeration}
-          distance={distance}
+          verticalExaggeration={verticalExaggeration}
+          cameraDistance={cameraDistance}
           measurementSystem={measurementSystem}
         />
       ))}
-      {overlays.filter(({ region }) => region.id === selectedId).flatMap(({ region }) => {
-        const regionHandles = handles.filter((handle) => handle.id === region.id);
-        return regionHandles.map((handle) => (
+      {regionOverlays.filter(({ region }) => region.id === selectedRegionId).flatMap(({ region }) => {
+        const handlesForRegion = regionHandlePositions.filter((handle) => handle.id === region.id);
+        return handlesForRegion.map((handle) => (
           <mesh key={`${handle.kind}-${handle.index ?? 0}`}
             position={[handle.position[0], handle.height ?? OVERLAY_LIFT_KM, handle.position[1]]}
             renderOrder={5}>
-            <sphereGeometry args={[Math.max(0.12, distance * 0.008), 16, 12]} />
+            <sphereGeometry args={[Math.max(0.12, cameraDistance * 0.008), 16, 12]} />
             <meshBasicMaterial
               color={(region.type === "polygon" || region.type === "polyline") &&
                 handle.kind === "center"

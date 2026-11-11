@@ -8,21 +8,21 @@ import {
 } from "react";
 import type { Camera, Texture } from "three";
 import { TerrainScene } from "./terrain/TerrainScene";
-import type { RegionHandle } from "./regions";
-import type { HighwayFeatureCollection } from "./highways";
-import type { RailwayFeatureCollection } from "./railways";
-import type { RiverFeatureCollection } from "./rivers";
-import type { MountainPeak } from "./mountains";
+import type { RegionHandle } from "./regions/geometry";
+import type { HighwayFeatureCollection } from "./features/highways";
+import type { RailwayFeatureCollection } from "./features/railways";
+import type { RiverFeatureCollection } from "./features/rivers";
+import type { MountainPeak } from "./features/mountains";
 import type { TerrainExportBoundingBox } from "./terrain/terrainExport";
 import type { TerrainRaycast } from "./terrain/terrainRaycast";
-import type { EcoregionMapMetadata } from "./terrain/ecoregions";
+import type { EcoregionMapMetadata } from "./features/ecoregions";
 import type {
   Dataset,
   BoundaryCollection,
   ClipFeatureSelections,
   Position,
   Region,
-  RegionOverlayPreview,
+  RegionOperationPreview,
   TopographicFeatureSelections,
   ViewSettings,
   ViewState,
@@ -40,7 +40,7 @@ type Props = {
   nationalParks: BoundaryCollection | null;
   nationalForests: BoundaryCollection | null;
   longitudeLatitudeLines: BoundaryCollection | null;
-  mountains: MountainPeak[];
+  mountainPeaks: MountainPeak[];
   topographicSelections: TopographicFeatureSelections;
   clipSelections: ClipFeatureSelections;
   dataError: string | null;
@@ -54,15 +54,15 @@ type Props = {
   settings: ViewSettings;
   regions: Region[];
   selectedRegionId: string | null;
-  shapeOperationPreview: RegionOverlayPreview | null;
+  regionOperationPreview: RegionOperationPreview | null;
   onCameraReady: (camera: Camera | null) => void;
   onInvalidateReady: (invalidate: (() => void) | null) => void;
-  onHandlePositions: (handles: RegionHandle[]) => void;
+  onRegionHandlesChange: (handles: RegionHandle[]) => void;
   onTerrainRaycastReady: (raycast: TerrainRaycast | null) => void;
   isPlacingCustomPoint: boolean;
   isRightPanning: boolean;
   centerTerrainElevationRef: { current: number | null };
-  onPointElevationChange: (id: string, elevationMeters: number) => void;
+  onRegionPointElevationChange: (id: string, elevationMeters: number) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   onZoom: (factor: number) => void;
@@ -92,7 +92,7 @@ export function MapDisplay(props: Props) {
     nationalParks,
     nationalForests,
     longitudeLatitudeLines,
-    mountains,
+    mountainPeaks,
     topographicSelections,
     clipSelections,
   } = props;
@@ -134,18 +134,18 @@ export function MapDisplay(props: Props) {
               nationalParks={nationalParks}
               nationalForests={nationalForests}
               longitudeLatitudeLines={longitudeLatitudeLines}
-              mountains={mountains}
+              mountainPeaks={mountainPeaks}
               topographicSelections={topographicSelections}
               clipSelections={clipSelections}
               imageExportPreview={props.imageExportPreview}
               exportBounds={props.exportBounds}
               settings={settings} regions={regions}
               selectedRegionId={selectedRegionId}
-              shapeOperationPreview={props.shapeOperationPreview}
+              regionOperationPreview={props.regionOperationPreview}
               terrainVisible={props.terrainVisible}
               onCameraReady={props.onCameraReady} onInvalidateReady={props.onInvalidateReady}
-              onHandlePositions={props.onHandlePositions}
-              onPointElevationChange={props.onPointElevationChange}
+              onRegionHandlesChange={props.onRegionHandlesChange}
+              onRegionPointElevationChange={props.onRegionPointElevationChange}
               onTerrainRaycastReady={props.onTerrainRaycastReady}
               centerTerrainElevationRef={props.centerTerrainElevationRef}
               viewRef={viewRef} view={view} />

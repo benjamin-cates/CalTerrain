@@ -1,0 +1,125 @@
+.elevation-profile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(5, 9, 8, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.elevation-profile-dialog {
+  display: flex;
+  width: min(980px, 100%);
+  max-height: calc(100dvh - 40px);
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
+  border-radius: 4px;
+  background: #151c1a;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+
+.elevation-profile-header,
+.elevation-profile-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.elevation-profile-header h2 {
+  margin: 0 0 5px;
+  color: #ffffff;
+  font-size: 18px;
+}
+
+.elevation-profile-header p,
+.elevation-profile-hint,
+.elevation-profile-status {
+  margin: 0;
+  color: #d7ded6;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.elevation-profile-actions {
+  flex: 0 0 auto;
+}
+
+.elevation-profile-actions button {
+  padding: 6px 9px;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-rgb), 0.06);
+  color: #ffffff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.elevation-profile-actions button:last-child {
+  border: 0;
+  background: transparent;
+  color: #a4ada3;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.elevation-profile-chart {
+  display: block;
+  width: 100%;
+  max-height: 62dvh;
+  overflow: visible;
+  cursor: crosshair;
+}
+
+.elevation-profile-grid {
+  stroke: rgba(224, 225, 209, 0.14);
+  stroke-width: 1;
+}
+
+.elevation-profile-tick {
+  fill: #c4cec4;
+  font-size: 11px;
+}
+
+.elevation-profile-axis-label {
+  fill: #ffffff;
+  font-size: 12px;
+}
+
+.elevation-profile-line {
+  fill: none;
+  stroke: #42c7b5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.elevation-profile-label circle {
+  fill: #ffda45;
+  stroke: #151c1a;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.elevation-profile-label {
+  cursor: pointer;
+}
+
+.elevation-profile-label text {
+  fill: #ffef9e;
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: #151c1a;
+  stroke-linejoin: round;
+  stroke-width: 4px;
+}
+
+.elevation-profile-status.is-error {
+  color: #ffb3aa;
+}
+

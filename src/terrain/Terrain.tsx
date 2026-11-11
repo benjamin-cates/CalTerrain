@@ -14,7 +14,7 @@ import {
 } from "three";
 import { WORLD_METERS } from "../geo";
 import type { Position, ViewSettings } from "../types";
-import { getEcoregionMapLocalBounds, type EcoregionMapMetadata } from "./ecoregions";
+import { getEcoregionMapLocalBounds, type EcoregionMapMetadata } from "../features/ecoregions";
 import {
   createTerrainClipMaskTexture,
   retainTerrainClipMask,
@@ -179,14 +179,14 @@ function TerrainTile({
     const paletteStops = heightPalette === "none"
       ? [new Vector3()]
       : heightPalette === "custom"
-      ? [gradientLowColor, gradientHighColor].map((color) => new Vector3(
-        linearToSrgb(color.r),
-        linearToSrgb(color.g),
-        linearToSrgb(color.b),
-      ))
-      : getTerrainHeightPaletteStops(
-        heightPalette === "solid" ? "grayscale" : heightPalette,
-      ).map(([red, green, blue]) => new Vector3(red / 255, green / 255, blue / 255));
+        ? [gradientLowColor, gradientHighColor].map((color) => new Vector3(
+          linearToSrgb(color.r),
+          linearToSrgb(color.g),
+          linearToSrgb(color.b),
+        ))
+        : getTerrainHeightPaletteStops(
+          heightPalette === "solid" ? "grayscale" : heightPalette,
+        ).map(([red, green, blue]) => new Vector3(red / 255, green / 255, blue / 255));
     const lastStop = paletteStops[paletteStops.length - 1];
     if (!lastStop) throw new Error(`Height palette ${heightPalette} has no color stops.`);
     const paddedStops = [...paletteStops];

@@ -1,0 +1,297 @@
+.topographic-popup-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.topographic-feature-popup-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.topographic-feature-popup-header > button {
+  justify-self: end;
+}
+
+.topographic-feature-popup-header > .topographic-feature-popup-source {
+  align-items: center;
+  text-align: center;
+}
+
+.topographic-feature-popup-source a {
+  color: var(--accent);
+  font-size: 9px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.topographic-feature-popup-source small {
+  white-space: nowrap;
+}
+
+.topographic-popup-header > div,
+.topographic-enable-all > span,
+.topographic-feature-option label > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.topographic-popup-header strong,
+.topographic-enable-all strong,
+.topographic-feature-option strong {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.topographic-popup-header small,
+.topographic-enable-all small,
+.topographic-feature-option small {
+  color: #e5e5e5;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.more-popup-feature-detail {
+  color: #b7c1b6 !important;
+  overflow-wrap: anywhere;
+}
+
+.topographic-popup-header button,
+.topographic-feature-option > button {
+  flex: 0 0 auto;
+  padding: 2px 6px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #a4ada3 !important;
+  font-size: 17px !important;
+  line-height: 1.2;
+}
+
+.topographic-enable-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 8px;
+  border: 1px solid rgba(224, 225, 209, 0.12);
+  background: rgba(224, 225, 209, 0.035);
+  cursor: pointer;
+}
+
+.topographic-enable-all strong {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.topographic-enable-all input,
+.topographic-feature-option input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.topographic-feature-list {
+  overflow-y: scroll;
+  min-height: 80px;
+  max-height: min(58vh, 560px);
+  padding-right: 8px;
+  border-top: 1px solid rgba(224, 225, 209, 0.06);
+  scrollbar-gutter: stable;
+  scrollbar-color: rgba(var(--accent-rgb), 0.7) rgba(224, 225, 209, 0.06);
+  scrollbar-width: thin;
+}
+
+.topographic-feature-section-title {
+  display: block;
+  padding: 8px 3px 4px;
+  color: #aab5aa;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topographic-feature-section + .topographic-feature-section {
+  margin-top: 6px;
+  border-top: 1px solid rgba(224, 225, 209, 0.12);
+}
+
+.topographic-feature-search {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 7px;
+  border: 1px solid rgba(224, 225, 209, 0.18);
+  border-radius: 2px;
+  background: #1c2522;
+  color: #ffffff;
+  font-size: 10px;
+}
+
+.topographic-feature-search::placeholder {
+  color: #aab5aa;
+}
+
+.topographic-feature-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.topographic-feature-list::-webkit-scrollbar-track {
+  background: rgba(224, 225, 209, 0.06);
+}
+
+.topographic-feature-list::-webkit-scrollbar-thumb {
+  border: 2px solid #151c1a;
+  border-radius: 4px;
+  background: rgba(var(--accent-rgb), 0.7);
+}
+
+.topographic-feature-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 3px 3px;
+  gap: -1px;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.topographic-feature-header > div {
+  display: grid;
+  width: 91px;
+  grid-template-columns: repeat(3, 30px);
+  gap: 1px;
+}
+
+.topographic-feature-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 3px;
+  border-bottom: 1px solid rgba(224, 225, 209, 0.06);
+}
+
+.topographic-feature-name {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.topographic-feature-actions {
+  width: 91px;
+  flex: 0 0 91px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.clip-region-export-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 8px 0 12px;
+  padding: 0 0 0 18px;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.image-preview-toggle {
+  width: 100%;
+}
+
+.export-format-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 8px 0px;
+}
+
+.export-format-options button[aria-pressed="true"] {
+  border-color: rgba(var(--accent-rgb), 0.62);
+  color: #ffffff;
+}
+
+.ecoregion-map-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0 0 8px;
+  padding: 0 8px;
+}
+
+.ecoregion-map-options button[aria-pressed="true"] {
+  border-color: rgba(var(--accent-rgb), 0.62);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: #ffffff;
+}
+
+.ecoregion-map-options button {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 2px;
+  background: rgba(var(--accent-rgb), 0.06);
+  color: #c5cec4;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.ecoregion-map-options button:hover {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.1);
+  color: #ffffff;
+}
+
+.ecoregion-map-options button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.image-export-region-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0;
+  color: #ffffff;
+  font-size: 10px;
+}
+
+.image-export-region-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.height-palette-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.emissive-palette-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
