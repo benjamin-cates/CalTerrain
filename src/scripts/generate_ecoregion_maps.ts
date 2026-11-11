@@ -9,14 +9,10 @@ import type {
   Bounds,
 } from "../types";
 import { geographicToMercator } from "../geo";
-import { readEcoregionLayerStyles } from "./ecoregionLayerStyles";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SOURCE_PATH = join(ROOT, "public/data/features/CA_Eco_L4.zip");
-const STYLE_PATHS = {
-  l3: join(ROOT, "public/data/features/ca_eco_l3.lyr"),
-  l4: join(ROOT, "public/data/features/ca_eco_l4.lyr"),
-};
+const COLOR_MAP_PATH = join(ROOT, "public/data/features/ca_ecoregion_colors.json");
 const STATE_BOUNDARY_PATH = join(ROOT, "public/data/boundaries/california.geojson");
 const OUTPUT_DIRECTORY = join(ROOT, "public/data/features");
 const OUTPUT_PATHS = {
@@ -31,7 +27,12 @@ type EcoregionLevel = {
   key: "l3" | "l4";
   codeField: "US_L3CODE" | "US_L4CODE";
   nameField: "US_L3NAME" | "US_L4NAME";
-  stylePath: string;
+};
+
+type RgbStyle = {
+  red: number;
+  green: number;
+  blue: number;
 };
 
 type EcoregionMapMetadata = {
@@ -91,11 +92,32 @@ async function readCollection(path: string, label: string): Promise<BoundaryColl
   return parsed;
 }
 
+async function readEcoregionColors(path: string): Promise<Map<string, RgbStyle>> {
+  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("The ecoregion color map must be an identifier-to-hex-color object.");
+  }
+  const colors = new Map<string, RgbStyle>();
+  for (const [code, value] of Object.entries(parsed)) {
+    if (!code.trim() || typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value)) {
+      throw new Error(`The ecoregion color map has an invalid entry for ${code || "(empty ID)"}.`);
+    }
+    colors.set(code, {
+      red: Number.parseInt(value.slice(1, 3), 16),
+      green: Number.parseInt(value.slice(3, 5), 16),
+      blue: Number.parseInt(value.slice(5, 7), 16),
+    });
+  }
+  if (colors.size === 0) {
+    throw new Error("The ecoregion color map contains no colors.");
+  }
+  return colors;
+}
+
 function colorCollection(
   collection: BoundaryCollection,
   level: EcoregionLevel,
-  styles: Map<string, { red: number; green: number; blue: number }>,
-  defaultStyle: { red: number; green: number; blue: number },
+  styles: Map<string, RgbStyle>,
 ): BoundaryCollection {
   const usedIds = new Set<string>();
   const features: BoundaryFeature[] = collection.features
@@ -128,7 +150,10 @@ function colorCollection(
         throw new Error(`${level.key.toUpperCase()} dissolve produced duplicate region ID ${code}.`);
       }
       usedIds.add(code);
-      const style = styles.get(code) ?? defaultStyle;
+      const style = styles.get(code);
+      if (!style) {
+        throw new Error(`The ecoregion color map is missing ${level.key.toUpperCase()} region ${code}.`);
+      }
       const color = `#${[style.red, style.green, style.blue].map((channel) =>
         channel.toString(16).padStart(2, "0")
       ).join("")}`;
@@ -313,15 +338,14 @@ async function generateEcoregionMaps(): Promise<void> {
         key: "l3",
         codeField: "US_L3CODE",
         nameField: "US_L3NAME",
-        stylePath: STYLE_PATHS.l3,
       },
       {
         key: "l4",
         codeField: "US_L4CODE",
         nameField: "US_L4NAME",
-        stylePath: STYLE_PATHS.l4,
       },
     ];
+    const colors = await readEcoregionColors(COLOR_MAP_PATH);
     const temporaryCollections = new Map<EcoregionLevel["key"], string>();
     for (const level of levels) {
       const dissolvedPath = join(temporaryDirectory, `${level.key}_dissolved.geojson`);
@@ -340,13 +364,7 @@ async function generateEcoregionMaps(): Promise<void> {
         "RFC7946=YES",
       ]);
       const dissolved = await readCollection(dissolvedPath, level.key.toUpperCase());
-      const layerStyles = await readEcoregionLayerStyles(level.stylePath, level.key);
-      const colored = colorCollection(
-        dissolved,
-        level,
-        layerStyles.byCode,
-        layerStyles.defaultStyle,
-      );
+      const colored = colorCollection(dissolved, level, colors);
       const coloredPath = join(temporaryDirectory, `${level.key}_colored.geojson`);
       await writeFile(coloredPath, `${JSON.stringify(colored)}\n`, "utf8");
       temporaryCollections.set(level.key, coloredPath);
