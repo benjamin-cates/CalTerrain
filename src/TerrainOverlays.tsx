@@ -2,6 +2,7 @@ import { useLoader, useThree } from "@react-three/fiber";
 import { useEffect, useMemo } from "react";
 import {
   CanvasTexture,
+  DoubleSide,
   SRGBColorSpace,
   Vector2,
   TextureLoader,
@@ -11,6 +12,10 @@ import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 import type { Texture } from "three";
 import { toLocal, WORLD_METERS } from "./geo";
+import {
+  createLakeMeshGeometry,
+  getLakeShoreElevation,
+} from "./features/lakes";
 import { regionGeometry } from "./regions/geometry";
 import type { RegionHandle } from "./regions/geometry";
 import { MOUNTAIN_PEAK_VISIBILITY_DISTANCE_KM, type MountainPeak } from "./features/mountains";
@@ -611,6 +616,8 @@ export function TerrainOverlays({
   center,
   countyBoundaries,
   drapedLineLayers,
+  lakes,
+  selectedLakeIds,
   highwayRouteShields,
   mountainPeaks,
   showMountainPeaks,
@@ -631,6 +638,8 @@ export function TerrainOverlays({
   center: Position;
   countyBoundaries: BoundaryCollection;
   drapedLineLayers: TerrainDrapedLineLayer[];
+  lakes: BoundaryCollection | null;
+  selectedLakeIds: string[];
   highwayRouteShields: HighwayShield[];
   mountainPeaks: MountainPeak[];
   showMountainPeaks: boolean;
@@ -691,6 +700,26 @@ export function TerrainOverlays({
       return null;
     };
   }, [center, getElevationRaster, terrainTiles]);
+  const lakeMeshes = useMemo(() => {
+    if (!lakes || selectedLakeIds.length === 0) return [];
+    const selectedIds = new Set(selectedLakeIds);
+    return lakes.features.flatMap((feature) => {
+      const id = String(feature.properties.GlobalID ?? "").trim();
+      if (!selectedIds.has(id)) return [];
+      const shoreElevation = getLakeShoreElevation(feature, center, sampleTerrainElevation);
+      if (shoreElevation === null) return [];
+      const geometry = createLakeMeshGeometry(
+        feature,
+        center,
+        shoreElevation,
+        verticalExaggeration,
+      );
+      return geometry ? [{ id, geometry }] : [];
+    });
+  }, [center, lakes, sampleTerrainElevation, selectedLakeIds, verticalExaggeration]);
+  useEffect(() => () => {
+    lakeMeshes.forEach(({ geometry }) => geometry.dispose());
+  }, [lakeMeshes]);
   const raycastTerrainMesh = useMemo<TerrainRaycast>(
     () => (ray, verticalExaggeration) =>
       raycastTerrainMeshHit(ray, terrainTiles, center, verticalExaggeration, getElevationRaster),
@@ -791,6 +820,17 @@ export function TerrainOverlays({
 
   return (
     <group>
+      {lakeMeshes.map(({ id, geometry }) => (
+        <mesh key={id} geometry={geometry} frustumCulled={false} renderOrder={1}>
+          <meshBasicMaterial
+            color="#73c9e8"
+            transparent
+            depthTest
+            depthWrite
+            side={DoubleSide}
+          />
+        </mesh>
+      ))}
       {regionOverlays.map(({ region, lines }) => (
         terrainTiles.map((tile) => {
           const texture = terrainTexturesByTile.get(`${tile.z}/${tile.x}/${tile.y}`);

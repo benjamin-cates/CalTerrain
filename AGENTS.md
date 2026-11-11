@@ -87,12 +87,18 @@
 - Prefer compressed shapefile ZIPs for large browser feature datasets when they
   reduce transfer size and the existing loader supports them. Keep source data,
   generated data, and browser URLs distinct.
-- Treat the checked-in ecoregion color JSON as the source of truth for map
-  generation. Do not substitute `.lyr` colors or an approximate CMYK formula.
-- Ecoregions are logical features, not man-made features. Keep Level III and
-  Level IV controls with the feature list rather than lighting controls; picking
-  an ecoregion map clears the lighting selection.
 - Keep feature details and actions in the feature-list panel. Preserve scroll
   stability while details are open or a search is active; show View/Cut actions
   for map-click details too, with Back only for inline list details. Promote a
   feature to quick access only when fewer than 10 are visible or cut.
+- Region lists should only preview up to three lines of visible or cut features in their 
+
+## Rules of thinking
+Do Not Linguistically Overstate or Understate Claims Relative to the Evidence
+Do not verify changes visually through the browser if there is not a verified visual issue.
+Keep files on the smaller side. Avoid writing files that are longer than 1000 lines.
+Keep the number of parameters for components and functions small.
+Maximize code reusability. This means minimizing the number of changes necessary to add a feature to a list.
+Do not create a new host with bun dev or bun start.
+Do not run bun build at the end of each session. This creates a lot of artifacts and it is hard to search the code base.
+

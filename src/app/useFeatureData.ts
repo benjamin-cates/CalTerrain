@@ -10,6 +10,7 @@ import {
 import { longitudeLatitudeCellId } from "../longitudeLatitudeGrid";
 import { getRailwayFeatureOptions } from "../features/railways";
 import { getRiverFeatureOptions } from "../features/rivers";
+import { lakeFeatureName } from "../features/lakes";
 import type {
   Dataset,
   TopographicFeatureCategory,
@@ -51,6 +52,12 @@ export function useFeatureData({
     "National park",
     "UNIT_CODE",
     "UNIT_NAME",
+  );
+  const lakeData = useBoundaryFeatureData(
+    "/data/features/California_Lakes_mini.zip",
+    "Lake",
+    "GlobalID",
+    "GlobalID",
   );
   const nationalForestData = useBoundaryFeatureData(
     "/data/boundaries/national_forests.zip",
@@ -116,6 +123,12 @@ export function useFeatureData({
       geometry: feature.geometry,
     })) ?? [];
     countyOptions.sort((left, right) => left.label.localeCompare(right.label));
+    const lakeNamesById = new Map(
+      (lakeData.features?.features ?? []).map((feature) => [
+        String(feature.properties.GlobalID ?? "").trim(),
+        lakeFeatureName(feature),
+      ]),
+    );
     return {
       highways: routeOptions("highways"),
       interstates: routeOptions("interstates"),
@@ -144,6 +157,10 @@ export function useFeatureData({
       })),
       railways: railwayFeatures ? getRailwayFeatureOptions(railwayFeatures) : [],
       rivers: riverFeatures ? getRiverFeatureOptions(riverFeatures) : [],
+      lakes: lakeData.options.map((option) => ({
+        ...option,
+        label: lakeNamesById.get(option.id) ?? option.label,
+      })).sort((left, right) => left.label.localeCompare(right.label)),
       ecoregions: ecoregionData.options,
     };
   }, [
@@ -151,6 +168,8 @@ export function useFeatureData({
     dataset,
     ecoregionData.options,
     highwayFeatures,
+    lakeData.features,
+    lakeData.options,
     longitudeLatitudeGrid,
     nationalForestData.options,
     nationalParkData.options,
@@ -168,6 +187,7 @@ export function useFeatureData({
     longitudeLatitudeLines: { loading: !dataset, error: dataError },
     railways: { loading: railwayLoading, error: railwayError },
     rivers: { loading: riverLoading, error: riverError },
+    lakes: { loading: lakeData.loading, error: lakeData.error },
     ecoregions: {
       loading: ecoregionData.loading || ecoregionMapLoading,
       error: ecoregionData.error ?? ecoregionMapError,
@@ -183,6 +203,8 @@ export function useFeatureData({
     ecoregionMapLoading,
     highwayError,
     highwayLoading,
+    lakeData.error,
+    lakeData.loading,
     mountainError,
     mountainLoading,
     nationalForestData.error,
@@ -203,6 +225,8 @@ export function useFeatureData({
       setMountainDataRequested(true);
     } else if (category === "nationalParks") {
       void nationalParkData.load();
+    } else if (category === "lakes") {
+      void lakeData.load();
     } else if (category === "nationalForests") {
       void nationalForestData.load();
     } else if (category === "railways") {
@@ -212,7 +236,7 @@ export function useFeatureData({
     } else if (category === "ecoregions") {
       void ecoregionData.load();
     }
-  }, [ecoregionData.load, loadCounties, nationalForestData.load, nationalParkData.load]);
+  }, [ecoregionData.load, lakeData.load, loadCounties, nationalForestData.load, nationalParkData.load]);
 
   return {
     allMountainPeaks,
@@ -220,6 +244,7 @@ export function useFeatureData({
     ecoregionData,
     ecoregionMapTexture,
     highwayFeatures,
+    lakeFeatures: lakeData.features,
     nationalForestData,
     nationalParkData,
     railwayFeatures,

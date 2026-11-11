@@ -121,10 +121,12 @@ function acquireMaskCanvas(): {
   }
   if (texture) {
     context.clearRect(0, 0, TERRAIN_CLIP_MASK_SIZE, TERRAIN_CLIP_MASK_SIZE);
+    context.globalCompositeOperation = "source-over";
     return { context, texture };
   }
 
   const createdTexture = new CanvasTexture(canvas);
+  context.globalCompositeOperation = "source-over";
   createdTexture.colorSpace = NoColorSpace;
   createdTexture.minFilter = LinearFilter;
   createdTexture.magFilter = LinearFilter;
@@ -167,6 +169,7 @@ export function createTerrainClipMaskTexture(
   tileTop: number,
   tileSizeKm: number,
   clipIndex = createTerrainClipPolygonIndex(polygons),
+  excludedIndex: TerrainClipPolygonIndex | null = null,
 ): TerrainClipMask {
   const scratch = getClipMaskScratch(clipIndex);
   const boundarySegments = getTerrainClipSegmentsForTile(
@@ -185,49 +188,106 @@ export function createTerrainClipMaskTexture(
     tileCenter,
     scratch.pointQuery,
   );
-  if (boundarySegments.length === 0) {
-    return {
-      texture: containingPolygons.length > 0
-        ? FULL_MASK_TEXTURE
-        : EMPTY_MASK_TEXTURE,
-      ownsTexture: false,
-    };
+  if (boundarySegments.length === 0 && containingPolygons.length === 0) {
+    return { texture: EMPTY_MASK_TEXTURE, ownsTexture: false };
+  }
+
+  const excludedScratch = excludedIndex ? getClipMaskScratch(excludedIndex) : null;
+  const excludedBoundarySegments = excludedIndex && excludedScratch
+    ? getTerrainClipSegmentsForTile(
+      excludedIndex,
+      tileLeft,
+      tileTop,
+      tileSizeKm,
+      excludedScratch.boundarySegments,
+    )
+    : [];
+  const excludedContainingPolygons = excludedIndex && excludedScratch
+    ? getTerrainClipPolygonsContainingPoint(
+      excludedIndex,
+      tileCenter,
+      excludedScratch.pointQuery,
+    )
+    : [];
+  if (
+    excludedBoundarySegments.length === 0 &&
+    excludedContainingPolygons.length > 0
+  ) {
+    return { texture: EMPTY_MASK_TEXTURE, ownsTexture: false };
+  }
+  if (boundarySegments.length === 0 && excludedBoundarySegments.length === 0) {
+    return { texture: FULL_MASK_TEXTURE, ownsTexture: false };
   }
 
   const { context, texture } = acquireMaskCanvas();
-  context.beginPath();
-  if (scratch.generation === 0xffff_ffff) {
-    scratch.drawnPolygons.fill(0);
-    scratch.generation = 1;
+  if (boundarySegments.length === 0) {
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, TERRAIN_CLIP_MASK_SIZE, TERRAIN_CLIP_MASK_SIZE);
   } else {
-    scratch.generation += 1;
+    context.beginPath();
+    if (scratch.generation === 0xffff_ffff) {
+      scratch.drawnPolygons.fill(0);
+      scratch.generation = 1;
+    } else {
+      scratch.generation += 1;
+    }
+    for (const polygonNumber of containingPolygons) {
+      drawPolygon(
+        context,
+        clipIndex.polygons,
+        polygonNumber,
+        scratch.drawnPolygons,
+        scratch.generation,
+        tileLeft,
+        tileTop,
+        tileSizeKm,
+      );
+    }
+    for (const segment of boundarySegments) {
+      drawPolygon(
+        context,
+        clipIndex.polygons,
+        segment.polygonIndex,
+        scratch.drawnPolygons,
+        scratch.generation,
+        tileLeft,
+        tileTop,
+        tileSizeKm,
+      );
+    }
+    context.fillStyle = "#fff";
+    context.fill("evenodd");
   }
-  for (const polygonNumber of containingPolygons) {
-    drawPolygon(
-      context,
-      clipIndex.polygons,
-      polygonNumber,
-      scratch.drawnPolygons,
-      scratch.generation,
-      tileLeft,
-      tileTop,
-      tileSizeKm,
-    );
+
+  if (excludedIndex && excludedScratch && excludedBoundarySegments.length > 0) {
+    if (excludedScratch.generation === 0xffff_ffff) {
+      excludedScratch.drawnPolygons.fill(0);
+      excludedScratch.generation = 1;
+    } else {
+      excludedScratch.generation += 1;
+    }
+    context.globalCompositeOperation = "destination-out";
+    const excludedPolygonNumbers = new Set([
+      ...excludedContainingPolygons,
+      ...excludedBoundarySegments.map((segment) => segment.polygonIndex),
+    ]);
+    for (const polygonNumber of excludedPolygonNumbers) {
+      context.beginPath();
+      drawPolygon(
+        context,
+        excludedIndex.polygons,
+        polygonNumber,
+        excludedScratch.drawnPolygons,
+        excludedScratch.generation,
+        tileLeft,
+        tileTop,
+        tileSizeKm,
+      );
+      context.fill("evenodd");
+    }
+    context.globalCompositeOperation = "source-over";
   }
-  for (const segment of boundarySegments) {
-    drawPolygon(
-      context,
-      clipIndex.polygons,
-      segment.polygonIndex,
-      scratch.drawnPolygons,
-      scratch.generation,
-      tileLeft,
-      tileTop,
-      tileSizeKm,
-    );
-  }
-  context.fillStyle = "#fff";
-  context.fill("evenodd");
+
   texture.needsUpdate = true;
   return { texture, ownsTexture: true };
 }

@@ -27,7 +27,8 @@
   font-size: 9px;
   text-decoration: underline;
   text-underline-offset: 2px;
-  white-space: nowrap;
+  max-width: 180px;
+  white-space: normal;
 }
 
 .topographic-feature-popup-source small {
@@ -294,4 +295,3 @@
 .emissive-palette-options {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-

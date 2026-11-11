@@ -34,6 +34,7 @@ type Props = {
   highwayFeatures: HighwayFeatureCollection | null;
   railwayFeatures: RailwayFeatureCollection | null;
   riverFeatures: RiverFeatureCollection | null;
+  lakes: BoundaryCollection | null;
   ecoregions: BoundaryCollection | null;
   ecoregionMapMetadata: EcoregionMapMetadata | null;
   ecoregionMapTexture: Texture | null;
@@ -86,6 +87,7 @@ export function MapDisplay(props: Props) {
     highwayFeatures,
     railwayFeatures,
     riverFeatures,
+    lakes,
     ecoregions,
     ecoregionMapMetadata,
     ecoregionMapTexture,
@@ -128,6 +130,7 @@ export function MapDisplay(props: Props) {
               highwayFeatures={highwayFeatures}
               railwayFeatures={railwayFeatures}
               riverFeatures={riverFeatures}
+              lakes={lakes}
               ecoregions={ecoregions}
               ecoregionMapMetadata={ecoregionMapMetadata}
               ecoregionMapTexture={ecoregionMapTexture}

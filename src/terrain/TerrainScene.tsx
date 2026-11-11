@@ -108,6 +108,7 @@ export function TerrainScene({
   highwayFeatures,
   railwayFeatures,
   riverFeatures,
+  lakes,
   ecoregions,
   ecoregionMapMetadata,
   ecoregionMapTexture,
@@ -137,6 +138,7 @@ export function TerrainScene({
   highwayFeatures: HighwayFeatureCollection | null;
   railwayFeatures: RailwayFeatureCollection | null;
   riverFeatures: RiverFeatureCollection | null;
+  lakes: BoundaryCollection | null;
   ecoregions: BoundaryCollection | null;
   ecoregionMapMetadata: EcoregionMapMetadata | null;
   ecoregionMapTexture: Texture | null;
@@ -175,6 +177,10 @@ export function TerrainScene({
   const selectedCountyIds = useMemo(
     () => new Set(topographicSelections.counties),
     [topographicSelections.counties],
+  );
+  const selectedLakeIds = useMemo(
+    () => new Set(topographicSelections.lakes),
+    [topographicSelections.lakes],
   );
   const selectedNationalParkIds = useMemo(
     () => new Set(topographicSelections.nationalParks),
@@ -271,6 +277,16 @@ export function TerrainScene({
     () => intersectStateWithRegions(stateBorderPolygons, regionClipPolygons),
     [regionClipPolygons, stateBorderPolygons],
   );
+  const lakeMaskPolygons = useMemo(() => {
+    if (!lakes || selectedLakeIds.size === 0) return [];
+    return lakes.features.flatMap((feature) => {
+      if (!selectedLakeIds.has(String(feature.properties.GlobalID ?? "").trim())) return [];
+      const rings = featureRings(feature).map((ring) =>
+        ring.map((point) => toLocal(point, data.metadata.center))
+      );
+      return rings.length > 0 ? [rings] : [];
+    });
+  }, [data.metadata.center, lakes, selectedLakeIds]);
   const boundaryLines = useMemo<TerrainDrapedLineLayer[]>(() => [
     ...(selectedCountyIds.size > 0
       ? [{
@@ -513,6 +529,7 @@ export function TerrainScene({
             regionMapMetadata={ecoregionMapMetadata}
             regionMapTexture={ecoregionMapTexture}
             clipPolygons={terrainClipPolygons}
+            lakeMaskPolygons={lakeMaskPolygons}
             tiles={deferredTiles}
           />
         </Suspense>
@@ -525,6 +542,8 @@ export function TerrainScene({
           center={data.metadata.center}
           countyBoundaries={counties}
           drapedLineLayers={overlayBoundaryLines}
+          lakes={lakes}
+          selectedLakeIds={topographicSelections.lakes}
           highwayRouteShields={imageExportPreview ? [] : routeShields}
           mountainPeaks={imageExportPreview ? [] : selectedMountainPeaks}
           showMountainPeaks={!imageExportPreview && selectedMountainPeaks.length > 0}

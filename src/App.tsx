@@ -142,6 +142,7 @@ export function App() {
     ecoregionData,
     ecoregionMapTexture,
     highwayFeatures,
+    lakeFeatures,
     nationalForestData,
     nationalParkData,
     railwayFeatures,
@@ -767,6 +768,7 @@ export function App() {
       "highways",
       "interstates",
       "rivers",
+      "lakes",
       "railways",
       "peaks",
       "counties",
@@ -1476,6 +1478,7 @@ export function App() {
             highwayFeatures={highwayFeatures}
             railwayFeatures={railwayFeatures}
             riverFeatures={riverFeatures}
+            lakes={lakeFeatures}
             ecoregions={ecoregionData.features}
             ecoregionMapMetadata={ecoregionData.mapMetadata}
             ecoregionMapTexture={ecoregionMapTexture}

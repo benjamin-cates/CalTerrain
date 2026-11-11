@@ -18,6 +18,10 @@ import {
 import { bisectPolygonClosingEdge } from "./regions/geometry";
 import { mergeRiverLinePaths } from "./features/rivers";
 import {
+  getLakePerimeterMedianElevation,
+  getLakePerimeterRings,
+} from "./features/lakes";
+import {
   customRegionGeometries,
   featureGeometryPositions,
   linePiecesFromGeometries,
@@ -219,6 +223,7 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
     case "highways": return "Highway route";
     case "interstates": return "Interstate route";
     case "rivers": return "River";
+    case "lakes": return "Lake";
     case "counties": return "County";
     case "peaks": return "Mountain peak";
     case "nationalParks": return "National park";
@@ -233,6 +238,7 @@ const TOPOGRAPHIC_CATEGORIES: FeatureCategoryButton[] = [
   { id: "ecoregions", label: "Ecoregions" },
   { id: "peaks", label: "Mountain peaks" },
   { id: "rivers", label: "Rivers" },
+  { id: "lakes", label: "Lakes" },
 ];
 
 const MANMADE_CATEGORIES: FeatureCategoryButton[] = [
@@ -256,6 +262,10 @@ const FEATURE_SOURCES: Partial<Record<TopographicFeatureCategory, { label: strin
   rivers: {
     label: "National Hydrography Dataset (NHD)",
     href: "https://data.cnra.ca.gov/dataset/national-hydrography-dataset-nhd",
+  },
+  lakes: {
+    label: "California Lakes (CDFW)",
+    href: "https://data-cdfw.opendata.arcgis.com/datasets/CDFW::california-lakes-1/explore?location=35.615613%2C-116.704082%2C9",
   },
   counties: {
     label: "California County Boundaries and Identifiers",
@@ -346,6 +356,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const [samplePercent, setSamplePercent] = useState(50);
   const [sampleElevationMeters, setSampleElevationMeters] = useState<number | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
+  const [lakeMedianElevationMeters, setLakeMedianElevationMeters] = useState<number | null>(null);
+  const [lakeMedianElevationLoading, setLakeMedianElevationLoading] = useState(false);
+  const [lakeMedianElevationError, setLakeMedianElevationError] = useState<string | null>(null);
   const [polygonStartIndex, setPolygonStartIndex] = useState("1");
   const [extremumLoading, setExtremumLoading] = useState<ElevationExtremum | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -391,6 +404,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const sidebarRef = useRef<HTMLElement>(null);
   const extremumRequestRef = useRef(0);
   const sampleRequestRef = useRef(0);
+  const lakeMedianRequestRef = useRef(0);
   const profileRequestRef = useRef(0);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const pointsEditorRef = useRef<HTMLDivElement>(null);
@@ -440,6 +454,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const moreFeatureOption = moreFeatureCategory
     ? props.topographicOptions[moreFeatureCategory].find((option) => option.id === moreTarget?.id)
     : undefined;
+  const moreFeatureIsLake = moreFeatureCategory === "lakes";
+  const lakePerimeterRings = useMemo(() => {
+    const geometry = moreFeatureOption?.geometry;
+    if (!moreFeatureIsLake || !geometry) return [];
+    if (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon") return [];
+    return getLakePerimeterRings(geometry);
+  }, [moreFeatureIsLake, moreFeatureOption?.geometry]);
   const moreGeometries: FeatureGeometry[] = moreRegion && props.center
     ? customRegionGeometries(moreRegion, props.center)
     : moreFeatureOption?.geometry ? [moreFeatureOption.geometry] : [];
@@ -1441,6 +1462,41 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       if (request === sampleRequestRef.current) sampleRequestRef.current += 1;
     };
   }, [morePage, props.onSampleElevation, samplePosition]);
+  useEffect(() => {
+    if (!moreFeatureIsLake) {
+      lakeMedianRequestRef.current += 1;
+      setLakeMedianElevationMeters(null);
+      setLakeMedianElevationLoading(false);
+      setLakeMedianElevationError(null);
+      return;
+    }
+
+    const request = ++lakeMedianRequestRef.current;
+    setLakeMedianElevationMeters(null);
+    setLakeMedianElevationLoading(true);
+    setLakeMedianElevationError(null);
+    void getLakePerimeterMedianElevation(lakePerimeterRings, props.onSampleElevation)
+      .then((elevationMeters) => {
+        if (request === lakeMedianRequestRef.current) {
+          setLakeMedianElevationMeters(elevationMeters);
+        }
+      })
+      .catch((error: unknown) => {
+        if (request === lakeMedianRequestRef.current) {
+          setLakeMedianElevationError(
+            error instanceof Error
+              ? error.message
+              : "Could not sample lake perimeter elevations.",
+          );
+        }
+      })
+      .finally(() => {
+        if (request === lakeMedianRequestRef.current) setLakeMedianElevationLoading(false);
+      });
+    return () => {
+      if (request === lakeMedianRequestRef.current) lakeMedianRequestRef.current += 1;
+    };
+  }, [lakePerimeterRings, moreFeatureIsLake, props.onSampleElevation]);
   const nearbyListStyle: CSSProperties | undefined = props.nearbyShapes
     ? (() => {
       const top = Math.max(8, Math.min(
@@ -1790,6 +1846,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           perimeterMeters={polygonMeasurements?.perimeterMeters}
           areaSquareMeters={polygonMeasurements?.areaSquareMeters}
           lengthMeters={lineLengthMeters}
+          medianElevationMeters={moreFeatureIsLake ? lakeMedianElevationMeters : undefined}
+          medianElevationLoading={moreFeatureIsLake && lakeMedianElevationLoading}
+          medianElevationError={moreFeatureIsLake ? lakeMedianElevationError : null}
           prominenceMeters={moreFeatureOption?.prominenceMeters}
           isolationKm={moreFeatureOption?.isolationKm}
           measurementSystem={settings.measurementSystem}

@@ -31,9 +31,8 @@ RouteKey = tuple[str, str]
 Line = list[Coordinate]
 
 METROLINK_ROUTES = {
-    "91 Line",
+    "91 Line / Perris Valley Line",
     "Antelope Valley Line",
-    "Burbank-Bob Hope Airport",
     "Inland Empire-Orange County Line",
     "Orange County Line",
     "Riverside Line",

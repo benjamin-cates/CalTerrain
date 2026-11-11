@@ -10,8 +10,8 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
 
 - **Explore terrain:** pan, rotate, and zoom around California; adjust vertical
   exaggeration, terrain palette, and lighting. Terrain data is streamed to keep high quality views with low memory usage.
-- **View mapped features:** enable rivers, highways and interstates, mountain peaks,
-  railways, counties, and national parks and forests.
+- **View mapped features:** enable lakes, rivers, highways and interstates,
+  mountain peaks, railways, counties, and national parks and forests.
 - **Create custom shapes:** add points, circles, rectangles, polygons, and
   polylines. Intersect, union, and subtract areas to create custom shapes.
 - **Analyze and edit regions:** inspect area, perimeter, and line length; sample high and low terrain points; create elevation
@@ -22,6 +22,7 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
 
 - [USGS 1-arcsecond terrain data from The National Map](https://prd-tnm.s3.amazonaws.com/index.html)
 - [National Hydrography Dataset (NHD)](https://data.cnra.ca.gov/dataset/national-hydrography-dataset-nhd)
+- [California Lakes (California Department of Fish and Wildlife)](https://data-cdfw.opendata.arcgis.com/datasets/CDFW::california-lakes-1/explore?location=35.615613%2C-116.704082%2C9)
 - [California Highways and Interstates](https://gis.data.ca.gov/datasets/8aa7227fac664e9cb72c8a62f0d43bd5_0/explore)
 - [California County Boundaries and Identifiers](https://gis.data.ca.gov/datasets/California::california-county-boundaries-and-identifiers/explore)
 - [List of Mountain Peaks of California (Wikipedia)](https://en.wikipedia.org/wiki/List_of_mountain_peaks_of_California)

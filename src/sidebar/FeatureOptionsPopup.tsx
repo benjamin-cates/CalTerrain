@@ -57,8 +57,14 @@ export function FeatureOptionsPopup(props: FeatureOptionsPopupProps) {
         </div>
         <div className="topographic-feature-popup-source">
           {props.source && (
-            <a href={props.source.href} target="_blank" rel="noopener noreferrer">
-              Data Source
+            <a
+              href={props.source.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Data source: ${props.source.label}`}
+              title={props.source.label}
+            >
+              {props.source.label}
             </a>
           )}
           <small>Shapes are simplified</small>

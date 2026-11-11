@@ -51,6 +51,9 @@ export function MorePopup({
   conversionHelp,
   areaSquareMeters,
   lengthMeters,
+  medianElevationMeters,
+  medianElevationLoading,
+  medianElevationError,
   prominenceMeters,
   isolationKm,
   measurementSystem,
@@ -78,6 +81,9 @@ export function MorePopup({
   perimeterMeters?: number;
   areaSquareMeters?: number;
   lengthMeters?: number;
+  medianElevationMeters?: number | null;
+  medianElevationLoading?: boolean;
+  medianElevationError?: string | null;
   prominenceMeters?: number;
   isolationKm?: number;
   measurementSystem: ViewSettings["measurementSystem"];
@@ -164,6 +170,22 @@ export function MorePopup({
               <>
                 <dt>Total length</dt>
                 <dd>{formatLength(lengthMeters, measurementSystem)}</dd>
+              </>
+            )}
+            {medianElevationMeters !== undefined && (
+              <>
+                <dt>Median perimeter elevation</dt>
+                <dd
+                  role={medianElevationError ? "alert" : medianElevationLoading ? "status" : undefined}
+                >
+                  {medianElevationError
+                    ? `Could not sample elevation: ${medianElevationError}`
+                    : medianElevationLoading
+                      ? "Sampling terrain elevations…"
+                      : medianElevationMeters === null
+                        ? "Unavailable"
+                        : formatElevation(medianElevationMeters, measurementSystem)}
+                </dd>
               </>
             )}
             {prominenceMeters !== undefined && (

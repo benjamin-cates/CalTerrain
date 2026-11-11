@@ -106,6 +106,7 @@ function TerrainTile({
   regionMapTexture,
   clipPolygons,
   clipIndex,
+  lakeMaskIndex,
 }: {
   center: Position;
   tile: { z: number; x: number; y: number };
@@ -120,6 +121,7 @@ function TerrainTile({
   regionMapTexture: Texture | null;
   clipPolygons: Position[][][];
   clipIndex: TerrainClipPolygonIndex;
+  lakeMaskIndex: TerrainClipPolygonIndex | null;
 }) {
   const image = `/data/terrain/tiles/${tile.z}/${tile.x}/${tile.y}.webp`;
   const tileSize = WORLD_METERS / 2 ** tile.z;
@@ -140,8 +142,9 @@ function TerrainTile({
       tileTop,
       tileSizeKm,
       clipIndex,
+      lakeMaskIndex,
     ),
-    [clipIndex, clipPolygons, tileLeft, tileSizeKm, tileTop],
+    [clipIndex, lakeMaskIndex, clipPolygons, tileLeft, tileSizeKm, tileTop],
   );
   const skirtGeometry = useMemo(
     () => makeTerrainSkirtGeometry(
@@ -297,6 +300,7 @@ export function TerrainTiles({
   regionMapMetadata,
   regionMapTexture,
   clipPolygons,
+  lakeMaskPolygons,
   tiles,
 }: {
   center: Position;
@@ -309,6 +313,7 @@ export function TerrainTiles({
   regionMapMetadata: EcoregionMapMetadata | null;
   regionMapTexture: Texture | null;
   clipPolygons: Position[][][];
+  lakeMaskPolygons: Position[][][];
   tiles: { z: number; x: number; y: number }[];
 }) {
   const sources = tiles.map((tile) => `/data/terrain/tiles/${tile.z}/${tile.x}/${tile.y}.webp`);
@@ -316,6 +321,12 @@ export function TerrainTiles({
   const clipIndex = useMemo(
     () => createTerrainClipPolygonIndex(clipPolygons),
     [clipPolygons],
+  );
+  const lakeMaskIndex = useMemo(
+    () => lakeMaskPolygons.length > 0
+      ? createTerrainClipPolygonIndex(lakeMaskPolygons)
+      : null,
+    [lakeMaskPolygons],
   );
 
   return (
@@ -337,6 +348,7 @@ export function TerrainTiles({
             regionMapTexture={regionMapTexture}
             clipPolygons={clipPolygons}
             clipIndex={clipIndex}
+            lakeMaskIndex={lakeMaskIndex}
             texture={texture}
             tile={tile}
           />

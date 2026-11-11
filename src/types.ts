@@ -34,6 +34,7 @@ export type TopographicFeatureCategory =
   | "highways"
   | "interstates"
   | "rivers"
+  | "lakes"
   | "counties"
   | "peaks"
   | "nationalParks"
@@ -77,6 +78,7 @@ export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelection
   highways: [],
   interstates: [],
   rivers: [],
+  lakes: [],
   counties: [],
   peaks: [],
   nationalParks: [],
