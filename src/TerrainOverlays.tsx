@@ -52,7 +52,15 @@ import { formatElevation } from "./units";
 const OVERLAY_LIFT_KM = 0.01;
 const MAX_TERRAIN_LINE_SEGMENTS_PER_TILE = 30_000;
 type LineBounds = { minX: number; minZ: number; maxX: number; maxZ: number };
-const lineBoundsCache = new WeakMap<Position[][], LineBounds[]>();
+const lineBoundsCache = new WeakMap<Position[], LineBounds>();
+const tileLinePositionsCache = new WeakMap<Position[], WeakMap<Tile, number[]>>();
+type CachedRegionGeometry = {
+  center: Position;
+  countyBoundaries: BoundaryCollection;
+  rotationHandleOffsetKm: number;
+  geometry: ReturnType<typeof regionGeometry>;
+};
+const regionGeometryCache = new WeakMap<Region, CachedRegionGeometry>();
 const MAX_ROUTE_SHIELD_SIZE_KM = 2.5;
 const ROUTE_SHIELD_SIZE_PER_DISTANCE = 0.02;
 const MOUNTAIN_LABEL_HEIGHT_PER_DISTANCE = 0.02;
@@ -70,6 +78,30 @@ export type TerrainDrapedLineLayer = {
   lineWidth: number;
   opacity: number;
 };
+
+function getCachedRegionGeometry(
+  region: Region,
+  center: Position,
+  countyBoundaries: BoundaryCollection,
+  rotationHandleOffsetKm: number,
+): ReturnType<typeof regionGeometry> {
+  const cached = regionGeometryCache.get(region);
+  if (
+    cached &&
+    cached.center === center &&
+    cached.countyBoundaries === countyBoundaries &&
+    cached.rotationHandleOffsetKm === rotationHandleOffsetKm
+  ) return cached.geometry;
+
+  const geometry = regionGeometry(region, center, countyBoundaries, rotationHandleOffsetKm);
+  regionGeometryCache.set(region, {
+    center,
+    countyBoundaries,
+    rotationHandleOffsetKm,
+    geometry,
+  });
+  return geometry;
+}
 
 function getShieldTexture(shield: HighwayShield): CanvasTexture {
   const key = `${shield.type}/${shield.number}`;
@@ -463,25 +495,84 @@ function clipSegmentToTile(
   return true;
 }
 
-function getLineBounds(lines: Position[][]): LineBounds[] {
-  const cachedBounds = lineBoundsCache.get(lines);
+function getLineBounds(line: Position[]): LineBounds {
+  const cachedBounds = lineBoundsCache.get(line);
   if (cachedBounds) return cachedBounds;
 
-  const bounds = lines.map((line) => {
-    let minX = Infinity;
-    let minZ = Infinity;
-    let maxX = -Infinity;
-    let maxZ = -Infinity;
-    for (const [x, z] of line) {
-      minX = Math.min(minX, x);
-      minZ = Math.min(minZ, z);
-      maxX = Math.max(maxX, x);
-      maxZ = Math.max(maxZ, z);
-    }
-    return { minX, minZ, maxX, maxZ };
-  });
-  lineBoundsCache.set(lines, bounds);
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (const [x, z] of line) {
+    minX = Math.min(minX, x);
+    minZ = Math.min(minZ, z);
+    maxX = Math.max(maxX, x);
+    maxZ = Math.max(maxZ, z);
+  }
+  const bounds = { minX, minZ, maxX, maxZ };
+  lineBoundsCache.set(line, bounds);
   return bounds;
+}
+
+function getTileLinePositions(
+  line: Position[],
+  bounds: LineBounds,
+  tile: Tile,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+  tileSizeKm: number,
+): number[] {
+  let positionsByTile = tileLinePositionsCache.get(line);
+  const cachedPositions = positionsByTile?.get(tile);
+  if (cachedPositions) return cachedPositions;
+
+  const positions: number[] = [];
+  if (
+    bounds.maxX >= left && bounds.minX <= right &&
+    bounds.maxZ >= top && bounds.minZ <= bottom
+  ) {
+    const clipped = new Float64Array(4);
+    const addSegment = (startX: number, startZ: number, endX: number, endZ: number) => {
+      positions.push(startX, 0, startZ, endX, 0, endZ);
+    };
+    let segmentBudget = MAX_TERRAIN_LINE_SEGMENTS_PER_TILE;
+    for (let index = 1; index < line.length && segmentBudget > 0; index += 1) {
+      const start = line[index - 1];
+      const end = line[index];
+      if (!start || !end || !clipSegmentToTile(start, end, left, top, right, bottom, clipped)) {
+        continue;
+      }
+      const fromX = clipped[0]!;
+      const fromZ = clipped[1]!;
+      const toX = clipped[2]!;
+      const toZ = clipped[3]!;
+      const length = Math.hypot(toX - fromX, toZ - fromZ);
+      const segmentCount = Math.min(
+        segmentBudget,
+        Math.max(1, Math.ceil(length / (tileSizeKm / TERRAIN_TILE_MESH_SEGMENTS))),
+      );
+      for (let step = 0; step < segmentCount; step += 1) {
+        const startT = step / segmentCount;
+        const endT = (step + 1) / segmentCount;
+        addSegment(
+          fromX + (toX - fromX) * startT,
+          fromZ + (toZ - fromZ) * startT,
+          fromX + (toX - fromX) * endT,
+          fromZ + (toZ - fromZ) * endT,
+        );
+      }
+      segmentBudget -= segmentCount;
+    }
+  }
+
+  if (!positionsByTile) {
+    positionsByTile = new WeakMap();
+    tileLinePositionsCache.set(line, positionsByTile);
+  }
+  positionsByTile.set(tile, positions);
+  return positions;
 }
 
 function makeTileLineGeometry(
@@ -496,52 +587,31 @@ function makeTileLineGeometry(
   const right = left + tileSizeKm;
   const bottom = top + tileSizeKm;
   const positions: number[] = [];
-  const clipped = new Float64Array(4);
-  const lineBounds = getLineBounds(lines);
   let segmentBudget = MAX_TERRAIN_LINE_SEGMENTS_PER_TILE;
-  const addSegment = (start: Position, end: Position) => {
-    positions.push(start[0], 0, start[1], end[0], 0, end[1]);
-  };
-  for (let lineIndex = 0; lineIndex < lines.length && segmentBudget > 0; lineIndex += 1) {
-    const line = lines[lineIndex];
-    const bounds = lineBounds[lineIndex];
+  for (const line of lines) {
+    if (segmentBudget === 0) break;
+    const bounds = getLineBounds(line);
     if (
-      !line || !bounds ||
+      !bounds ||
       bounds.maxX < left || bounds.minX > right ||
       bounds.maxZ < top || bounds.minZ > bottom
     ) continue;
-    for (let index = 1; index < line.length && segmentBudget > 0; index += 1) {
-      const start = line[index - 1];
-      const end = line[index];
-      if (!start || !end) continue;
-      if (!clipSegmentToTile(start, end, left, top, right, bottom, clipped)) continue;
-      const fromX = clipped[0]!;
-      const fromZ = clipped[1]!;
-      const toX = clipped[2]!;
-      const toZ = clipped[3]!;
-      const deltaX = toX - fromX;
-      const deltaZ = toZ - fromZ;
-      const length = Math.hypot(deltaX, deltaZ);
-      const segmentCount = Math.min(
-        segmentBudget,
-        Math.max(1, Math.ceil(length / (tileSizeKm / TERRAIN_TILE_MESH_SEGMENTS))),
-      );
-      for (let step = 0; step < segmentCount; step += 1) {
-        const startT = step / segmentCount;
-        const endT = (step + 1) / segmentCount;
-        addSegment(
-          [
-            fromX + deltaX * startT,
-            fromZ + deltaZ * startT,
-          ],
-          [
-            fromX + deltaX * endT,
-            fromZ + deltaZ * endT,
-          ],
-        );
-      }
-      segmentBudget -= segmentCount;
+    const linePositions = getTileLinePositions(
+      line,
+      bounds,
+      tile,
+      left,
+      top,
+      right,
+      bottom,
+      tileSizeKm,
+    );
+    const positionCount = Math.min(linePositions.length, segmentBudget * 6);
+    for (let index = 0; index < positionCount; index += 1) {
+      const position = linePositions[index];
+      if (position !== undefined) positions.push(position);
     }
+    segmentBudget -= positionCount / 6;
   }
 
   const geometry = new LineSegmentsGeometry();
@@ -739,7 +809,12 @@ export function TerrainOverlays({
     .filter((region) => region.type !== "county" || region.id === selectedRegionId)
     .map((region) => ({
       region,
-      ...regionGeometry(region, center, countyBoundaries, Math.max(1.5, cameraDistance * 0.012)),
+      ...getCachedRegionGeometry(
+        region,
+        center,
+        countyBoundaries,
+        Math.max(1.5, cameraDistance * 0.012),
+      ),
     })), [center, countyBoundaries, cameraDistance, mapRegions, selectedRegionId, regionOperationPreview]);
   const operationPreviewLinesLocal = useMemo(
     () => (regionOperationPreview?.lines ?? [])

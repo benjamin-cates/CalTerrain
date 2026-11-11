@@ -28,6 +28,7 @@ import {
 import { selectTerrainTiles } from "./terrainQuadtree";
 import type {
   BoundaryCollection,
+  BoundaryFeature,
   Dataset,
   Position,
   Region,
@@ -40,6 +41,54 @@ import type {
 } from "../types";
 
 const EMPTY_BOUNDARIES: BoundaryCollection = { type: "FeatureCollection", features: [] };
+
+function createBoundaryLineLayerCache(
+  category: string,
+  center: Position,
+  color: string,
+  lineWidth: number,
+  opacity: number,
+): (feature: BoundaryFeature, featureId: string) => TerrainDrapedLineLayer {
+  const cache = new WeakMap<BoundaryFeature, TerrainDrapedLineLayer>();
+  return (feature, featureId) => {
+    const cached = cache.get(feature);
+    if (cached) return cached;
+    const layer = {
+      id: `${category}:${featureId}`,
+      lines: featureRings(feature).map((ring) =>
+        ring.map((position) => toLocal(position, center))
+      ),
+      color,
+      lineWidth,
+      opacity,
+    };
+    cache.set(feature, layer);
+    return layer;
+  };
+}
+
+function selectBoundaryLineLayers(
+  collection: BoundaryCollection,
+  selectedIds: ReadonlySet<string>,
+  getId: (feature: BoundaryFeature) => string,
+  getLayer: (feature: BoundaryFeature, id: string) => TerrainDrapedLineLayer,
+): TerrainDrapedLineLayer[] {
+  return collection.features.flatMap((feature) => {
+    const id = getId(feature);
+    return selectedIds.has(id) ? [getLayer(feature, id)] : [];
+  });
+}
+
+function combineBoundaryLineLayers(
+  id: string,
+  layers: TerrainDrapedLineLayer[],
+  color: string,
+  lineWidth: number,
+  opacity: number,
+): TerrainDrapedLineLayer[] {
+  const lines = layers.flatMap((layer) => layer.lines);
+  return lines.length > 0 ? [{ id, lines, color, lineWidth, opacity }] : [];
+}
 
 function CameraRig({
   onInvalidateReady,
@@ -214,6 +263,119 @@ export function TerrainScene({
     () => new Set(topographicSelections.rivers),
     [topographicSelections.rivers],
   );
+  const countyBoundaryLineLayer = useMemo(
+    () => createBoundaryLineLayerCache("county", data.metadata.center, "#21918c", 1.5, 0.72),
+    [data.metadata.center],
+  );
+  const countyBoundaryLines = useMemo(
+    () => combineBoundaryLineLayers(
+      "county-borders",
+      selectBoundaryLineLayers(
+        counties,
+        selectedCountyIds,
+        countyId,
+        countyBoundaryLineLayer,
+      ),
+      "#21918c",
+      1.5,
+      0.72,
+    ),
+    [counties, countyBoundaryLineLayer, selectedCountyIds],
+  );
+  const longitudeLatitudeLineLayer = useMemo(
+    () => createBoundaryLineLayerCache(
+      "longitude-latitude",
+      data.metadata.center,
+      "#7fb4c5",
+      1.3,
+      0.78,
+    ),
+    [data.metadata.center],
+  );
+  const longitudeLatitudeBoundaryLines = useMemo(
+    () => longitudeLatitudeLines
+      ? combineBoundaryLineLayers(
+        "longitude-latitude-lines",
+        selectBoundaryLineLayers(
+        longitudeLatitudeLines,
+        selectedLongitudeLatitudeCellIds,
+        longitudeLatitudeCellId,
+        longitudeLatitudeLineLayer,
+        ),
+        "#7fb4c5",
+        1.3,
+        0.78,
+      )
+      : [],
+    [
+      longitudeLatitudeLineLayer,
+      longitudeLatitudeLines,
+      selectedLongitudeLatitudeCellIds,
+    ],
+  );
+  const nationalParkLineLayer = useMemo(
+    () => createBoundaryLineLayerCache("national-park", data.metadata.center, "#b99adc", 1.8, 0.9),
+    [data.metadata.center],
+  );
+  const nationalParkBoundaryLines = useMemo(
+    () => nationalParks
+      ? combineBoundaryLineLayers(
+        "national-park-borders",
+        selectBoundaryLineLayers(
+          nationalParks,
+          selectedNationalParkIds,
+          (feature) => String(feature.properties.UNIT_CODE).trim(),
+          nationalParkLineLayer,
+        ),
+        "#b99adc",
+        1.8,
+        0.9,
+      )
+      : [],
+    [nationalParkLineLayer, nationalParks, selectedNationalParkIds],
+  );
+  const nationalForestLineLayer = useMemo(
+    () => createBoundaryLineLayerCache("national-forest", data.metadata.center, "#80b7a0", 1.8, 0.9),
+    [data.metadata.center],
+  );
+  const nationalForestBoundaryLines = useMemo(
+    () => nationalForests
+      ? combineBoundaryLineLayers(
+        "national-forest-borders",
+        selectBoundaryLineLayers(
+          nationalForests,
+          selectedNationalForestIds,
+          (feature) => String(feature.properties.forestorgc).trim(),
+          nationalForestLineLayer,
+        ),
+        "#80b7a0",
+        1.8,
+        0.9,
+      )
+      : [],
+    [nationalForestLineLayer, nationalForests, selectedNationalForestIds],
+  );
+  const ecoregionLineLayer = useMemo(
+    () => createBoundaryLineLayerCache("ecoregion", data.metadata.center, "#d8bd68", 1.8, 0.9),
+    [data.metadata.center],
+  );
+  const ecoregionBoundaryLines = useMemo(
+    () => ecoregions
+      ? combineBoundaryLineLayers(
+        "ecoregion-borders",
+        selectBoundaryLineLayers(
+          ecoregions,
+          selectedEcoregionIds,
+          (feature) => String(feature.properties.US_L4CODE).trim(),
+          ecoregionLineLayer,
+        ),
+        "#d8bd68",
+        1.8,
+        0.9,
+      )
+      : [],
+    [ecoregionLineLayer, ecoregions, selectedEcoregionIds],
+  );
   const selectedRouteIds = useMemo(
     () => new Set([
       ...topographicSelections.highways.map((number) => `highway/${number}`),
@@ -273,8 +435,11 @@ export function TerrainScene({
     () => getStateBoundaryClipPolygons(data.state, data.metadata.center),
     [data.metadata.center, data.state.features],
   );
-  const terrainClipPolygons = useMemo(
-    () => intersectStateWithRegions(stateBorderPolygons, regionClipPolygons),
+  const terrainClipPolygons = useMemo(() => {
+    if (regionClipPolygons === null) return stateBorderPolygons;
+    if (regionClipPolygons.length === 0 || stateBorderPolygons.length === 0) return [];
+    return intersectStateWithRegions(stateBorderPolygons, regionClipPolygons);
+  },
     [regionClipPolygons, stateBorderPolygons],
   );
   const lakeMaskPolygons = useMemo(() => {
@@ -288,93 +453,17 @@ export function TerrainScene({
     });
   }, [data.metadata.center, lakes, selectedLakeIds]);
   const boundaryLines = useMemo<TerrainDrapedLineLayer[]>(() => [
-    ...(selectedCountyIds.size > 0
-      ? [{
-        id: "county-borders",
-        lines: counties.features
-          .filter((feature) => selectedCountyIds.has(countyId(feature)))
-          .flatMap((feature) =>
-            featureRings(feature).map((ring) =>
-              ring.map((point) => toLocal(point, data.metadata.center))
-            )
-          ),
-        color: "#21918c",
-        lineWidth: 1.5,
-        opacity: 0.72,
-      }]
-      : []),
-    ...(longitudeLatitudeLines && selectedLongitudeLatitudeCellIds.size > 0
-      ? [{
-        id: "longitude-latitude-lines",
-        lines: longitudeLatitudeLines.features
-          .filter((feature) => selectedLongitudeLatitudeCellIds.has(longitudeLatitudeCellId(feature)))
-          .flatMap((feature) =>
-            featureRings(feature).map((ring) =>
-              ring.map((point) => toLocal(point, data.metadata.center))
-            )
-          ),
-        color: "#7fb4c5",
-        lineWidth: 1.3,
-        opacity: 0.78,
-      }]
-      : []),
-    ...(nationalParks && selectedNationalParkIds.size > 0
-      ? [{
-        id: "national-park-borders",
-        lines: nationalParks.features
-          .filter((feature) => selectedNationalParkIds.has(String(feature.properties.UNIT_CODE).trim()))
-          .flatMap((feature) =>
-            featureRings(feature).map((ring) =>
-              ring.map((point) => toLocal(point, data.metadata.center))
-            )
-          ),
-        color: "#b99adc",
-        lineWidth: 1.8,
-        opacity: 0.9,
-      }]
-      : []),
-    ...(nationalForests && selectedNationalForestIds.size > 0
-      ? [{
-        id: "national-forest-borders",
-        lines: nationalForests.features
-          .filter((feature) => selectedNationalForestIds.has(String(feature.properties.forestorgc).trim()))
-          .flatMap((feature) =>
-            featureRings(feature).map((ring) =>
-              ring.map((point) => toLocal(point, data.metadata.center))
-            )
-          ),
-        color: "#80b7a0",
-        lineWidth: 1.8,
-        opacity: 0.9,
-      }]
-      : []),
-    ...(ecoregions && selectedEcoregionIds.size > 0
-      ? [{
-        id: "ecoregion-borders",
-        lines: ecoregions.features
-          .filter((feature) => selectedEcoregionIds.has(String(feature.properties.US_L4CODE).trim()))
-          .flatMap((feature) =>
-            featureRings(feature).map((ring) =>
-              ring.map((point) => toLocal(point, data.metadata.center))
-            )
-          ),
-        color: "#d8bd68",
-        lineWidth: 1.8,
-        opacity: 0.9,
-      }]
-      : []),
+    ...countyBoundaryLines,
+    ...longitudeLatitudeBoundaryLines,
+    ...nationalParkBoundaryLines,
+    ...nationalForestBoundaryLines,
+    ...ecoregionBoundaryLines,
   ], [
-    counties.features,
-    data.metadata.center,
-    ecoregions,
-    longitudeLatitudeLines,
-    nationalForests,
-    nationalParks,
-    selectedCountyIds,
-    selectedEcoregionIds,
-    selectedLongitudeLatitudeCellIds,
-    selectedNationalForestIds,
-    selectedNationalParkIds,
+    countyBoundaryLines,
+    ecoregionBoundaryLines,
+    longitudeLatitudeBoundaryLines,
+    nationalForestBoundaryLines,
+    nationalParkBoundaryLines,
   ]);
   const highwayLines = useMemo(
     () => highwayFeatures

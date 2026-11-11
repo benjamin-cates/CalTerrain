@@ -1994,7 +1994,6 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             } else {
               props.onFocusFeature(moreTarget.category, moreTarget.id);
             }
-            closeMorePopup();
           }}
         >
           {morePage === "shift-start" && moreRegion?.type === "polygon" && (
