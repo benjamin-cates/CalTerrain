@@ -35,6 +35,7 @@ export type TopographicFeatureCategory =
   | "interstates"
   | "rivers"
   | "lakes"
+  | "landmasses"
   | "counties"
   | "peaks"
   | "nationalParks"
@@ -44,6 +45,7 @@ export type TopographicFeatureCategory =
   | "ecoregions";
 export type TopographicFeatureSelections = Record<TopographicFeatureCategory, string[]>;
 export type ClipFeatureCategory =
+  | "landmasses"
   | "counties"
   | "nationalParks"
   | "nationalForests"
@@ -79,6 +81,7 @@ export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelection
   interstates: [],
   rivers: [],
   lakes: [],
+  landmasses: [],
   counties: [],
   peaks: [],
   nationalParks: [],
@@ -89,6 +92,7 @@ export const INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS: TopographicFeatureSelection
 };
 
 export const INITIAL_CLIP_FEATURE_SELECTIONS: ClipFeatureSelections = {
+  landmasses: [],
   counties: [],
   nationalParks: [],
   nationalForests: [],

@@ -25,6 +25,22 @@ const parkBoundaries: BoundaryCollection = {
     },
   }],
 };
+const landmassBoundaries: BoundaryCollection = {
+  type: "FeatureCollection",
+  features: [{
+    type: "Feature",
+    properties: { id: "mainland", name: "MAINLAND" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[
+        [-121, 37],
+        [-120, 37],
+        [-120, 38],
+        [-121, 37],
+      ]],
+    },
+  }],
+};
 const longitudeLatitudeLines: BoundaryCollection = {
   type: "FeatureCollection",
   features: [{
@@ -71,6 +87,7 @@ describe("region boundary export and clipping", () => {
     expect(createRegionBoundaryExport(
       [],
       {
+        landmasses: [],
         counties: [],
         nationalParks: [],
         nationalForests: [],
@@ -98,6 +115,44 @@ describe("region boundary export and clipping", () => {
     expect(polygons[0]).toHaveLength(2);
     expect(polygons[0]?.[0]?.[0]?.[0]).toEqual(toLocal([-121, 37], center));
     expect(boundaryFeatureClipPolygons(parkBoundaries, [], () => "", center)).toEqual([]);
+  });
+
+  test("clips terrain to selected landmasses and exports their boundaries", () => {
+    const polygons = boundaryFeatureClipPolygons(
+      landmassBoundaries,
+      ["mainland"],
+      (feature) => String(feature.properties.id ?? ""),
+      center,
+    );
+    const result = createRegionBoundaryExport(
+      [],
+      {
+        landmasses: ["mainland"],
+        counties: [],
+        nationalParks: [],
+        nationalForests: [],
+        longitudeLatitudeLines: [],
+        ecoregions: [],
+      },
+      center,
+      null,
+      null,
+      null,
+      null,
+      null,
+      landmassBoundaries,
+    );
+
+    expect(polygons).toHaveLength(1);
+    expect(polygons[0]?.[0]?.[0]?.[0]).toEqual(toLocal([-121, 37], center));
+    expect(result.features).toHaveLength(1);
+    expect(result.features[0]?.properties).toMatchObject({
+      id: "Landmass:mainland",
+      name: "MAINLAND",
+      category: "Landmass",
+    });
+    expect(clipFeatureExportRegionId("landmasses", "mainland"))
+      .toBe("Landmass:mainland");
   });
 
   test("exports only clipped custom shapes and selected boundary features as GeoJSON", () => {
@@ -137,6 +192,7 @@ describe("region boundary export and clipping", () => {
     const result = createRegionBoundaryExport(
       regions,
       {
+        landmasses: [],
         counties: [],
         nationalParks: ["PARK1"],
         nationalForests: [],
@@ -170,6 +226,7 @@ describe("region boundary export and clipping", () => {
     const result = createRegionBoundaryExport(
       [],
       {
+        landmasses: [],
         counties: [],
         nationalParks: [],
         nationalForests: [],
@@ -199,6 +256,7 @@ describe("region boundary export and clipping", () => {
     const result = createRegionBoundaryExport(
       [],
       {
+        landmasses: [],
         counties: [],
         nationalParks: [],
         nationalForests: [],

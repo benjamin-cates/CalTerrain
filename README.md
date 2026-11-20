@@ -10,7 +10,7 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
 
 - **Explore terrain:** pan, rotate, and zoom around California; adjust vertical
   exaggeration, terrain palette, and lighting. Terrain data is streamed to keep high quality views with low memory usage.
-- **View mapped features:** enable lakes, rivers, highways and interstates,
+- **View mapped features:** enable landmasses, lakes, rivers, highways and interstates,
   mountain peaks, railways, counties, and national parks and forests.
 - **Create custom shapes:** add points, circles, rectangles, polygons, and
   polylines. Intersect, union, and subtract areas to create custom shapes.
@@ -25,6 +25,7 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
 - [California Lakes (California Department of Fish and Wildlife)](https://data-cdfw.opendata.arcgis.com/datasets/CDFW::california-lakes-1/explore?location=35.615613%2C-116.704082%2C9)
 - [California Highways and Interstates](https://gis.data.ca.gov/datasets/8aa7227fac664e9cb72c8a62f0d43bd5_0/explore)
 - [California County Boundaries and Identifiers](https://gis.data.ca.gov/datasets/California::california-county-boundaries-and-identifiers/explore)
+- **Landmasses** are derived from the county-derived California boundary and packaged as a shapefile ZIP; regenerate them with `bun run generate:landmasses`.
 - [List of Mountain Peaks of California (Wikipedia)](https://en.wikipedia.org/wiki/List_of_mountain_peaks_of_California)
 - [National Parks (USDOT Open Data)](https://data-usdot.opendata.arcgis.com/datasets/usdot::national-parks/explore)
 - [Forest Administrative Boundaries (U.S. Forest Service)](https://data-usfs.hub.arcgis.com/datasets/usfs::forest-administrative-boundaries-feature-layer/explore)

@@ -158,6 +158,7 @@ export function TerrainScene({
   railwayFeatures,
   riverFeatures,
   lakes,
+  landmasses,
   ecoregions,
   ecoregionMapMetadata,
   ecoregionMapTexture,
@@ -188,6 +189,7 @@ export function TerrainScene({
   railwayFeatures: RailwayFeatureCollection | null;
   riverFeatures: RiverFeatureCollection | null;
   lakes: BoundaryCollection | null;
+  landmasses: BoundaryCollection | null;
   ecoregions: BoundaryCollection | null;
   ecoregionMapMetadata: EcoregionMapMetadata | null;
   ecoregionMapTexture: Texture | null;
@@ -230,6 +232,10 @@ export function TerrainScene({
   const selectedLakeIds = useMemo(
     () => new Set(topographicSelections.lakes),
     [topographicSelections.lakes],
+  );
+  const selectedLandmassIds = useMemo(
+    () => new Set(topographicSelections.landmasses),
+    [topographicSelections.landmasses],
   );
   const selectedNationalParkIds = useMemo(
     () => new Set(topographicSelections.nationalParks),
@@ -317,6 +323,27 @@ export function TerrainScene({
     () => createBoundaryLineLayerCache("national-park", data.metadata.center, "#b99adc", 1.8, 0.9),
     [data.metadata.center],
   );
+  const landmassLineLayer = useMemo(
+    () => createBoundaryLineLayerCache("landmass", data.metadata.center, "#72c6df", 1.8, 0.95),
+    [data.metadata.center],
+  );
+  const landmassBoundaryLines = useMemo(
+    () => landmasses
+      ? combineBoundaryLineLayers(
+        "landmass-borders",
+        selectBoundaryLineLayers(
+          landmasses,
+          selectedLandmassIds,
+          (feature) => String(feature.properties.id ?? "").trim(),
+          landmassLineLayer,
+        ),
+        "#72c6df",
+        1.8,
+        0.95,
+      )
+      : [],
+    [landmassLineLayer, landmasses, selectedLandmassIds],
+  );
   const nationalParkBoundaryLines = useMemo(
     () => nationalParks
       ? combineBoundaryLineLayers(
@@ -392,6 +419,12 @@ export function TerrainScene({
     return [
       ...getRegionClipPolygons(regions, data.metadata.center, counties),
       ...boundaryFeatureClipPolygons(
+        landmasses,
+        clipSelections.landmasses,
+        (feature) => String(feature.properties.id ?? ""),
+        data.metadata.center,
+      ),
+      ...boundaryFeatureClipPolygons(
         nationalParks,
         clipSelections.nationalParks,
         (feature) => String(feature.properties.UNIT_CODE ?? "").trim(),
@@ -418,12 +451,14 @@ export function TerrainScene({
     ];
   }, [
     clipSelections.ecoregions,
+    clipSelections.landmasses,
     clipSelections.longitudeLatitudeLines,
     clipSelections.nationalForests,
     clipSelections.nationalParks,
     counties,
     data.metadata.center,
     ecoregions,
+    landmasses,
     nationalForests,
     nationalParks,
     longitudeLatitudeLines,
@@ -453,6 +488,7 @@ export function TerrainScene({
     });
   }, [data.metadata.center, lakes, selectedLakeIds]);
   const boundaryLines = useMemo<TerrainDrapedLineLayer[]>(() => [
+    ...landmassBoundaryLines,
     ...countyBoundaryLines,
     ...longitudeLatitudeBoundaryLines,
     ...nationalParkBoundaryLines,
@@ -461,6 +497,7 @@ export function TerrainScene({
   ], [
     countyBoundaryLines,
     ecoregionBoundaryLines,
+    landmassBoundaryLines,
     longitudeLatitudeBoundaryLines,
     nationalForestBoundaryLines,
     nationalParkBoundaryLines,

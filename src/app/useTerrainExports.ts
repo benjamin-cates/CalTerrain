@@ -89,6 +89,7 @@ export function useTerrainExports({
       )
       .map((region) => ({ id: region.id, name: region.name }));
     const categories: { id: ClipFeatureCategory; prefix: string }[] = [
+      { id: "landmasses", prefix: "Landmass" },
       { id: "counties", prefix: "County" },
       { id: "nationalParks", prefix: "National park" },
       { id: "nationalForests", prefix: "National forest" },
@@ -120,6 +121,7 @@ export function useTerrainExports({
       nationalForestFeatures,
       longitudeLatitudeGrid,
       ecoregionFeatures,
+      dataset.state,
     );
     return createTerrainExportRegions(
       boundaryCollection,
@@ -157,6 +159,7 @@ export function useTerrainExports({
       nationalForestFeatures,
       longitudeLatitudeGrid,
       ecoregionFeatures,
+      dataset.state,
     );
     const blob = new Blob([JSON.stringify(collection, null, 2)], {
       type: "application/geo+json",
@@ -194,6 +197,7 @@ export function useTerrainExports({
         nationalForestFeatures,
         longitudeLatitudeGrid,
         ecoregionFeatures,
+        dataset.state,
       );
       const { regions: exportRegions, californiaPolygons } = createTerrainExportRegions(
         boundaryCollection,

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoundaryCollection, TopographicFeatureOption } from "../types";
-import { fetchBoundaryShapefile, getBoundaryFeatureOptions } from "./boundaryShapefile";
+import {
+  fetchBoundaryGeoJson,
+  fetchBoundaryShapefile,
+  getBoundaryFeatureOptions,
+} from "./boundaryShapefile";
 
 export function useBoundaryFeatureData(
   url: string,
@@ -30,7 +34,9 @@ export function useBoundaryFeatureData(
     setError(null);
     const request = (async () => {
       try {
-        const collection = await fetchBoundaryShapefile(url, label);
+        const collection = url.endsWith(".geojson")
+          ? await fetchBoundaryGeoJson(url, label)
+          : await fetchBoundaryShapefile(url, label);
         const featureOptions = getBoundaryFeatureOptions(
           collection,
           label,

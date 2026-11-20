@@ -769,6 +769,7 @@ export function App() {
       "interstates",
       "rivers",
       "lakes",
+      "landmasses",
       "railways",
       "peaks",
       "counties",
@@ -1479,6 +1480,7 @@ export function App() {
             railwayFeatures={railwayFeatures}
             riverFeatures={riverFeatures}
             lakes={lakeFeatures}
+            landmasses={dataset?.state ?? null}
             ecoregions={ecoregionData.features}
             ecoregionMapMetadata={ecoregionData.mapMetadata}
             ecoregionMapTexture={ecoregionMapTexture}

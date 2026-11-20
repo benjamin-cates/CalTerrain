@@ -15,6 +15,7 @@ const EMPTY_BOUNDARIES: BoundaryCollection = {
 };
 
 const CLIP_FEATURE_CATEGORY_NAMES: Record<ClipFeatureCategory, string> = {
+  landmasses: "Landmass",
   counties: "County",
   nationalParks: "National park",
   nationalForests: "National forest",
@@ -63,6 +64,7 @@ export function createRegionBoundaryExport(
   nationalForests: BoundaryCollection | null,
   longitudeLatitudeLines: BoundaryCollection | null,
   ecoregions: BoundaryCollection | null,
+  landmasses: BoundaryCollection | null = null,
 ): BoundaryCollection {
   const customFeatures: BoundaryFeature[] = regions
     .filter((region) =>
@@ -85,6 +87,12 @@ export function createRegionBoundaryExport(
     });
 
   const boundarySources = [
+    {
+      collection: landmasses,
+      category: "landmasses",
+      getId: (feature: BoundaryFeature) => String(feature.properties.id ?? ""),
+      getName: (feature: BoundaryFeature) => String(feature.properties.name ?? ""),
+    },
     { collection: counties, category: "counties", getId: countyId, getName: countyName },
     {
       collection: nationalParks,

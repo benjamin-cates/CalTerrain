@@ -20,6 +20,7 @@ import type {
 } from "../types";
 import { formatElevation } from "../units";
 import { useBoundaryFeatureData } from "../terrain/useBoundaryFeatureData";
+import { getBoundaryFeatureOptions } from "../terrain/boundaryShapefile";
 import { useCustomMountainPeaks } from "../features/useCustomMountainPeaks";
 import { useEcoregionData } from "../features/useEcoregionData";
 import { useEcoregionMapTexture } from "../features/useEcoregionMapTexture";
@@ -161,6 +162,9 @@ export function useFeatureData({
         ...option,
         label: lakeNamesById.get(option.id) ?? option.label,
       })).sort((left, right) => left.label.localeCompare(right.label)),
+      landmasses: dataset
+        ? getBoundaryFeatureOptions(dataset.state, "Landmass", "id", "name")
+        : [],
       ecoregions: ecoregionData.options,
     };
   }, [
@@ -188,6 +192,7 @@ export function useFeatureData({
     railways: { loading: railwayLoading, error: railwayError },
     rivers: { loading: riverLoading, error: riverError },
     lakes: { loading: lakeData.loading, error: lakeData.error },
+    landmasses: { loading: !dataset, error: dataError },
     ecoregions: {
       loading: ecoregionData.loading || ecoregionMapLoading,
       error: ecoregionData.error ?? ecoregionMapError,
@@ -236,7 +241,13 @@ export function useFeatureData({
     } else if (category === "ecoregions") {
       void ecoregionData.load();
     }
-  }, [ecoregionData.load, lakeData.load, loadCounties, nationalForestData.load, nationalParkData.load]);
+  }, [
+    ecoregionData.load,
+    lakeData.load,
+    loadCounties,
+    nationalForestData.load,
+    nationalParkData.load,
+  ]);
 
   return {
     allMountainPeaks,

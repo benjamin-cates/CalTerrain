@@ -10,6 +10,7 @@ narrowest applicable command rather than editing a generated output by hand.
 | Browser data | Source and generation |
 | --- | --- |
 | `boundaries/california.geojson` | `data_sources/CA_Counties_simple.zip`; run `python3 src/scripts/create_california_boundary.py`. This dissolves the county polygons, repairs invalid geometry, closes gaps up to 30 m in projected meters, and writes WGS 84 GeoJSON. The source `.prj` mislabels its Web Mercator coordinates, so the script explicitly assigns EPSG:3857 before processing. |
+| `boundaries/california_landmasses.zip` | Derived from `boundaries/california.geojson`; run `bun run generate:landmasses`. This is the single California boundary file loaded by the browser for both terrain clipping and the Landmasses feature list. `MAINLAND` includes the six boundary fragments in the Sacramento-San Joaquin Delta. Each named Channel Island has its own feature, with Anacapa's three islets and San Miguel's two source components grouped together; South Farallon, Treasure, and Angel Islands are also separate. Remaining detached boundary components are omitted. Generation requires GDAL's `ogr2ogr` and the `zip` command. |
 | `boundaries/counties.geojson` | Exported from the same county archive by `python3 src/scripts/process_terrain.py` (or `bun run process:terrain`). |
 | `boundaries/longitude_latitude_cells.geojson` | Derived from `california.geojson`; run `bun run generate:grid`. |
 | `terrain/tiles/**`, `terrain/metadata.json` | Generated from `data_sources/USGS/*.tif` and the county archive by `bun run process:terrain`. It also regenerates the California and county GeoJSON boundaries, then the latitude/longitude grid. |
@@ -27,8 +28,9 @@ The pipeline creates lossless WebP Terrarium elevation tiles at zoom levels
 buffer. Avoid rerunning it for routine code validation.
 
 The boundary-only command is useful when only the canonical state geometry
-needs to be refreshed. Run `bun run generate:grid` afterward if the grid also
-needs to match that boundary. The `.zip` shapefile copies of the California and
+needs to be refreshed. Run `bun run generate:grid` and
+`bun run generate:landmasses` afterward if those outputs also need to match that boundary.
+The `.zip` shapefile copies of the California and
 county boundaries are browser inputs too, but the boundary and terrain scripts
 currently write GeoJSON; there is no checked-in command to rebuild those ZIPs.
 

@@ -50,7 +50,10 @@ export function useTerrainData() {
       try {
         const [metadataResponse, state, longitudeLatitudeGrid] = await Promise.all([
           fetch("/data/terrain/metadata.json"),
-          fetchBoundaryShapefile("/data/boundaries/california.zip", "California"),
+          fetchBoundaryShapefile(
+            "/data/boundaries/california_landmasses.zip",
+            "California landmass",
+          ),
           fetchBoundaryGeoJson(
             "/data/boundaries/longitude_latitude_cells.geojson",
             "Longitude and latitude grid",

@@ -224,6 +224,7 @@ function featureTypeLabel(category: TopographicFeatureCategory): string {
     case "interstates": return "Interstate route";
     case "rivers": return "River";
     case "lakes": return "Lake";
+    case "landmasses": return "Landmass";
     case "counties": return "County";
     case "peaks": return "Mountain peak";
     case "nationalParks": return "National park";
@@ -239,6 +240,7 @@ const TOPOGRAPHIC_CATEGORIES: FeatureCategoryButton[] = [
   { id: "peaks", label: "Mountain peaks" },
   { id: "rivers", label: "Rivers" },
   { id: "lakes", label: "Lakes" },
+  { id: "landmasses", label: "Landmasses" },
 ];
 
 const MANMADE_CATEGORIES: FeatureCategoryButton[] = [
@@ -267,6 +269,10 @@ const FEATURE_SOURCES: Partial<Record<TopographicFeatureCategory, { label: strin
     label: "California Lakes (CDFW)",
     href: "https://data-cdfw.opendata.arcgis.com/datasets/CDFW::california-lakes-1/explore?location=35.615613%2C-116.704082%2C9",
   },
+  landmasses: {
+    label: "California county-derived boundary",
+    href: "https://gis.data.ca.gov/datasets/California::california-county-boundaries-and-identifiers/explore",
+  },
   counties: {
     label: "California County Boundaries and Identifiers",
     href: "https://gis.data.ca.gov/datasets/California::california-county-boundaries-and-identifiers/explore",
@@ -290,7 +296,8 @@ const FEATURE_SOURCES: Partial<Record<TopographicFeatureCategory, { label: strin
 };
 
 function isClipFeatureCategory(category: TopographicFeatureCategory): category is ClipFeatureCategory {
-  return category === "counties" ||
+  return category === "landmasses" ||
+    category === "counties" ||
     category === "nationalParks" ||
     category === "nationalForests" ||
     category === "longitudeLatitudeLines" ||
@@ -1003,6 +1010,17 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   );
   if (featurePanel === "highways") {
     featurePanelOptions.sort(compareHighwayFeatureOptions);
+  } else if (featurePanel === "landmasses") {
+    featurePanelOptions.sort((first, second) =>
+      first.option.id === "mainland"
+        ? -1
+        : second.option.id === "mainland"
+          ? 1
+          : first.option.label.localeCompare(second.option.label, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          })
+    );
   } else {
     featurePanelOptions.sort((a, b) =>
       a.option.label.localeCompare(b.option.label, undefined, { numeric: true, sensitivity: "base" })
@@ -1043,7 +1061,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       ...(cutFeatureOptions.length > 0 && cutFeatureOptions.length < 10
         ? cutFeatureOptions
         : []),
-    ].map((item) => [`${item.category}:${item.option.id}`, item])).values()];
+    ].filter((item) => item.category !== "landmasses")
+      .map((item) => [`${item.category}:${item.option.id}`, item])).values()];
   const renderFeatureOption = (item: CategorizedFeatureOption, list: "quick" | "all") => {
     const { category, option } = item;
     const isVisible = props.topographicSelections[category].includes(option.id);
