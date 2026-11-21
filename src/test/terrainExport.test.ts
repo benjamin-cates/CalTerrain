@@ -15,6 +15,7 @@ import {
   getTerrainImageTilePixelBounds,
   getTerrainExportBoundingBoxes,
   getTerrainExportResolution,
+  getTerrainExportZoom,
   getTerrainExportScaleMeters,
   getTerrainExportScaleStep,
   getTerrainGroundScale,
@@ -36,11 +37,82 @@ function fromLocalRing(points: Position[], center: Position): Position[] {
   return points.map((point) => fromLocal(point, center));
 }
 
+function pointInRing([x, z]: Position, ring: Position[]): boolean {
+  let inside = false;
+  for (let index = 0, previousIndex = ring.length - 1; index < ring.length; previousIndex = index++) {
+    const current = ring[index];
+    const previous = ring[previousIndex];
+    if (!current || !previous) continue;
+    if ((current[1] > z) !== (previous[1] > z) &&
+      x < (previous[0] - current[0]) * (z - current[1]) /
+        (previous[1] - current[1]) + current[0]) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function hasOutwardWallFaces(
+  obj: string,
+  region: TerrainExportRegion,
+  horizontalScale: number,
+): boolean {
+  const vertices = obj.split("\n")
+    .filter((line) => line.startsWith("v "))
+    .map((line) => line.slice(2).split(" ").map(Number) as [number, number, number]);
+  const bottomY = Math.min(...vertices.map(([, y]) => y));
+  const wallFaces = obj.split("\n").filter((line) => line.startsWith("f "));
+  let wallFaceCount = 0;
+  for (const face of wallFaces) {
+    const triangle = face.slice(2).split(" ").map((index) => vertices[Number(index) - 1]);
+    if (triangle.length !== 3 || triangle.some((vertex) => !vertex)) continue;
+    const [a, b, c] = triangle as [[number, number, number], [number, number, number], [number, number, number]];
+    if ([a, b, c].filter(([, y]) => Math.abs(y - bottomY) < 1e-8).length !== 2) continue;
+    wallFaceCount += 1;
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const normalX = ab[1]! * ac[2]! - ab[2]! * ac[1]!;
+    const normalZ = ab[0]! * ac[1]! - ab[1]! * ac[0]!;
+    const normalLength = Math.hypot(normalX, normalZ);
+    if (normalLength === 0) return false;
+    const probe: Position = [
+      ((a[0] + b[0] + c[0]) / 3 + normalX / normalLength * horizontalScale) /
+        (1_000 * horizontalScale),
+      ((a[2] + b[2] + c[2]) / 3 + normalZ / normalLength * horizontalScale) /
+        (1_000 * horizontalScale),
+    ];
+    const isInside = region.polygons.some(([outer, ...holes]) =>
+      outer !== undefined &&
+      pointInRing(probe, outer) &&
+      !holes.some((hole) => pointInRing(probe, hole))
+    );
+    if (isInside) return false;
+  }
+  return wallFaceCount > 0;
+}
+
 describe("terrain export", () => {
   it("maps resolution in the requested coarse-to-fine slider order", () => {
-    expect(TERRAIN_EXPORT_RESOLUTIONS).toEqual([240, 120, 60, 30]);
-    expect(getTerrainExportResolution(0)).toBe(240);
-    expect(getTerrainExportResolution(3)).toBe(30);
+    expect(TERRAIN_EXPORT_RESOLUTIONS).toEqual([1_920, 960, 480, 240, 120, 60, 30]);
+    expect(getTerrainExportResolution(0)).toBe(1_920);
+    expect(getTerrainExportResolution(1)).toBe(960);
+    expect(getTerrainExportResolution(2)).toBe(480);
+    expect(getTerrainExportResolution(3)).toBe(240);
+    expect(getTerrainExportResolution(6)).toBe(30);
+  });
+
+  it("uses the coarsest available tiles for coarse exports", () => {
+    const metadata: TerrainMetadata = {
+      center: [0, 0],
+      bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+      zoomLevels: [8, 9, 10, 11],
+      tiles: [],
+    };
+
+    expect(getTerrainExportZoom(metadata, 1_920)).toBe(8);
+    expect(getTerrainExportZoom(metadata, 960)).toBe(8);
+    expect(getTerrainExportZoom(metadata, 480)).toBe(8);
+    expect(getTerrainExportZoom(metadata, 240)).not.toBe(8);
   });
 
   it("raises the browser triangle ceiling for compressed exports", () => {
@@ -254,7 +326,7 @@ describe("terrain export", () => {
         californiaPolygons: prepared.californiaPolygons,
         region: prepared.regions[0]!,
         resolutionMeters: 10_000,
-        californiaLatitudeSpanMeters: 1,
+        californiaLatitudeSpanMeters: 40_000,
         verticalExaggeration: 1,
         onTriangleCount: (count) => {
           totalTriangleCount = count;
@@ -280,6 +352,10 @@ describe("terrain export", () => {
       expect(totalTriangleCount).toBe(faceCount);
       expect(edgeUses.size).toBeGreaterThan(0);
       expect([...edgeUses.values()].every((count) => count === 2)).toBe(true);
+      const stateZs = prepared.californiaPolygons.flat(2).map(([, z]) => z);
+      const horizontalScale = 40_000 /
+        ((Math.max(...stateZs) - Math.min(...stateZs)) * 1_000);
+      expect(hasOutwardWallFaces(obj, prepared.regions[0]!, horizontalScale)).toBe(true);
 
       const glb = await createTerrainGlb({
         metadata,
@@ -287,7 +363,7 @@ describe("terrain export", () => {
         californiaPolygons: prepared.californiaPolygons,
         region: prepared.regions[0]!,
         resolutionMeters: 10_000,
-        californiaLatitudeSpanMeters: 1,
+        californiaLatitudeSpanMeters: 40_000,
         verticalExaggeration: 1,
       }, 8);
       const glbView = new DataView(glb);

@@ -172,7 +172,7 @@ export function ExportSection(props: ExportSectionProps) {
       <div className={`terrain-export-controls${props.exportFormat === "model" ? " is-model" : ""}`}>
         <label className="control-field">
           <span>Resolution <strong>{formatLength(resolution, settings.measurementSystem)}</strong></span>
-          <input type="range" aria-label="Export resolution" min="0" max="3" step="1"
+          <input type="range" aria-label="Export resolution" min="0" max="6" step="1"
             value={props.resolutionIndex}
             onChange={(event) => props.onSetResolutionIndex(Number(event.target.value))} />
           <small>Move right for finer terrain.</small>

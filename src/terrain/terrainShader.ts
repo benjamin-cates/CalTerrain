@@ -81,20 +81,24 @@ export function createTerrainStandardMaterial(
   uniforms: TerrainClipShaderUniforms,
   side: Side = FrontSide,
   polygonOffset = false,
+  options: { forceOpaque?: boolean } = {},
 ): MeshStandardMaterial {
+  const forceOpaque = options.forceOpaque ?? false;
   colorMap.colorSpace = SRGBColorSpace;
   const material = new MeshStandardMaterial({
     emissive: "#ffffff",
     map: colorMap,
     roughness: 0.96,
     side,
-    alphaTest: 0.01,
-    transparent: true,
+    alphaTest: forceOpaque ? 0 : 0.01,
+    transparent: !forceOpaque,
     polygonOffset,
     polygonOffsetFactor: polygonOffset ? -1 : 0,
   });
-  material.onBeforeCompile = (shader) => applyTerrainDisplacementShader(shader, uniforms);
-  material.customProgramCacheKey = () => "terrain-bicubic-height-emissive-v1";
+  material.onBeforeCompile = (shader) =>
+    applyTerrainDisplacementShader(shader, uniforms, forceOpaque);
+  material.customProgramCacheKey = () =>
+    `terrain-bicubic-height-emissive-v1-${forceOpaque ? "opaque" : "masked"}`;
   return material;
 }
 
@@ -340,6 +344,7 @@ function applyTerrainClipMaskFragmentShader(
 export function applyTerrainDisplacementShader(
   shader: TerrainShader,
   uniforms: TerrainClipShaderUniforms,
+  forceOpaque = false,
 ): void {
   applyTerrainHeightVertexShader(shader, uniforms, true, true, true);
   replaceFragmentShaderChunk(
@@ -363,6 +368,13 @@ export function applyTerrainDisplacementShader(
     true,
     true,
   );
+  if (forceOpaque) {
+    replaceFragmentShaderChunk(
+      shader,
+      "#include <map_fragment>",
+      "#include <map_fragment>\ndiffuseColor.a = 1.0;",
+    );
+  }
   replaceFragmentShaderChunk(
     shader,
     "#include <emissivemap_fragment>",

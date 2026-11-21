@@ -124,7 +124,7 @@ export function App() {
   const [clipSelections, setClipSelections] =
     useState<ClipFeatureSelections>(INITIAL_CLIP_FEATURE_SELECTIONS);
   const [exportFormat, setExportFormat] = useState<"image" | "model">("model");
-  const [resolutionIndex, setResolutionIndex] = useState(1);
+  const [resolutionIndex, setResolutionIndex] = useState(3);
   const [selectedImageRegionId, setSelectedImageRegionId] = useState<string | null>(null);
   const [heightPalette, setHeightPalette] = useState<TerrainHeightPalette>("grayscale");
   const featureData = useFeatureData({

@@ -11,6 +11,7 @@ export type TerrainClipSegment = Bounds & {
   start: Position;
   end: Position;
   polygonIndex: number;
+  interiorOnLeft: boolean;
 };
 
 type SegmentNode = Bounds & {
@@ -70,7 +71,19 @@ export function createTerrainClipPolygonIndex(
   for (let polygonIndex = 0; polygonIndex < polygons.length; polygonIndex += 1) {
     const polygon = polygons[polygonIndex];
     if (!polygon) continue;
-    for (const ring of polygon) {
+    for (let ringIndex = 0; ringIndex < polygon.length; ringIndex += 1) {
+      const ring = polygon[ringIndex];
+      if (!ring) continue;
+      let signedArea = 0;
+      for (let index = 0; index < ring.length; index += 1) {
+        const start = ring[index];
+        const end = ring[(index + 1) % ring.length];
+        if (start && end) signedArea += start[0] * end[1] - end[0] * start[1];
+      }
+      const ringInteriorOnLeft = signedArea > 0;
+      const interiorOnLeft = ringIndex === 0
+        ? ringInteriorOnLeft
+        : !ringInteriorOnLeft;
       for (let index = 0; index < ring.length; index += 1) {
         const start = ring[index];
         const end = ring[(index + 1) % ring.length];
@@ -79,6 +92,7 @@ export function createTerrainClipPolygonIndex(
           start,
           end,
           polygonIndex,
+          interiorOnLeft,
           minX: Math.min(start[0], end[0]),
           minZ: Math.min(start[1], end[1]),
           maxX: Math.max(start[0], end[0]),

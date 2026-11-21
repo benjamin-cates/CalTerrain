@@ -252,6 +252,7 @@ function TerrainTile({
       skirtUniforms,
       DoubleSide,
       false,
+      { forceOpaque: true },
     ),
     [skirtUniforms, texture],
   );

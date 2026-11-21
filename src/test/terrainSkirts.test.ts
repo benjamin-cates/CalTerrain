@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { DoubleSide, Material, Texture, Vector2, Vector3, Vector4 } from "three";
 import {
   makeTerrainSkirtGeometry,
   TERRAIN_SKIRT_BOTTOM_ELEVATION_METERS,
 } from "../terrain/terrainSkirts";
+import { applyTerrainDisplacementShader, createTerrainStandardMaterial } from "../terrain/terrainShader";
 import type { Position } from "../types";
 
 describe("terrain boundary skirts", () => {
@@ -81,5 +83,47 @@ describe("terrain boundary skirts", () => {
     expect(largestSegment(fine)).toBeLessThanOrEqual(0.5);
     coarse.dispose();
     fine.dispose();
+  });
+
+  it("keeps skirt faces opaque where the terrain texture is transparent over ocean", () => {
+    const texture = new Texture();
+    const uniforms = {
+      uTerrainHeightMap: { value: texture },
+      uTerrainImageSize: { value: new Vector2(259, 259) },
+      uTerrainTileSizeKm: { value: 1 },
+      uTerrainExaggeration: { value: 1 },
+      uTerrainSkirtBottomMeters: { value: TERRAIN_SKIRT_BOTTOM_ELEVATION_METERS },
+      uTerrainClipMask: { value: texture },
+      uTerrainClipMaskEnabled: { value: 0 },
+      uTerrainPaletteStops: { value: [new Vector3()] },
+      uTerrainPaletteStopCount: { value: 1 },
+      uTerrainPaletteSolid: { value: 0 },
+      uTerrainSolidColor: { value: new Vector3() },
+      uTerrainRegionMap: { value: texture },
+      uTerrainRegionMapEnabled: { value: 0 },
+      uTerrainRegionMapBounds: { value: new Vector4() },
+    };
+    const material = createTerrainStandardMaterial(
+      texture,
+      uniforms,
+      DoubleSide,
+      false,
+      { forceOpaque: true },
+    );
+    const shader = {
+      uniforms: {},
+      vertexShader: "#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>",
+      fragmentShader: "#include <common>\n#include <map_fragment>\n#include <emissivemap_fragment>",
+    } as Parameters<Material["onBeforeCompile"]>[0];
+
+    applyTerrainDisplacementShader(shader, uniforms, true);
+
+    expect(material.transparent).toBe(false);
+    expect(material.alphaTest).toBe(0);
+    expect(shader.fragmentShader).toContain(
+      "#include <map_fragment>\ndiffuseColor.a = 1.0;",
+    );
+    material.dispose();
+    texture.dispose();
   });
 });

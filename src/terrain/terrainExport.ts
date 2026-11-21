@@ -40,7 +40,8 @@ import {
   type TerrainHeightPalette,
 } from "./terrainHeightPalette";
 
-export const TERRAIN_EXPORT_RESOLUTIONS = [240, 120, 60, 30] as const;
+export const TERRAIN_EXPORT_RESOLUTIONS = [1_920, 960, 480, 240, 120, 60, 30] as const;
+const COARSE_TERRAIN_TILE_RESOLUTION_METERS = 480;
 export const CALIFORNIA_LATITUDE_SPAN_METERS = 1_052_987;
 export const TERRAIN_EXPORT_SCALE_MIN_METERS = 0.01;
 export const TERRAIN_EXPORT_SCALE_MAX_METERS = CALIFORNIA_LATITUDE_SPAN_METERS;
@@ -420,7 +421,7 @@ export async function createTerrainImageCanvas(
     );
   }
 
-  const zoom = getTerrainZoom(options.metadata, options.resolutionMeters);
+  const zoom = getTerrainExportZoom(options.metadata, options.resolutionMeters);
   const tiles = getExportTiles(options.metadata, zoom, dimensions.bounds, options.center);
   if (tiles.length === 0) {
     throw new Error(`No terrain tiles are available at ${options.resolutionMeters} m resolution.`);
@@ -522,7 +523,16 @@ function getRegionTilePolygons(
   });
 }
 
-function getTerrainZoom(metadata: TerrainMetadata, resolutionMeters: number): number {
+export function getTerrainExportZoom(
+  metadata: TerrainMetadata,
+  resolutionMeters: number,
+): number {
+  if (resolutionMeters >= COARSE_TERRAIN_TILE_RESOLUTION_METERS) {
+    return metadata.zoomLevels.reduce(
+      (coarsestZoom, zoom) => Math.min(coarsestZoom, zoom),
+      metadata.zoomLevels[0] ?? 8,
+    );
+  }
   const centerLatitude =
     Math.atan(Math.sinh((metadata.center[1] / WORLD_METERS) * 2 * Math.PI)) * 180 / Math.PI;
   const latitudeScale = Math.cos(centerLatitude * Math.PI / 180);
@@ -830,10 +840,25 @@ class ObjBuilder {
     const topEnd = this.addVertex([end[0] * 1_000, endHeight, end[1] * 1_000]);
     const bottomStart = this.addVertex([start[0] * 1_000, bottomElevation, start[1] * 1_000]);
     const bottomEnd = this.addVertex([end[0] * 1_000, bottomElevation, end[1] * 1_000]);
-    this.faces.push(
-      topStart, bottomStart, bottomEnd,
-      topStart, bottomEnd, topEnd,
-    );
+    const edgeX = end[0] - start[0];
+    const edgeZ = end[1] - start[1];
+    const boundaryX = boundarySegment.end[0] - boundarySegment.start[0];
+    const boundaryZ = boundarySegment.end[1] - boundarySegment.start[1];
+    const followsBoundary = edgeX * boundaryX + edgeZ * boundaryZ >= 0;
+    const interiorOnLeft = followsBoundary
+      ? boundarySegment.interiorOnLeft
+      : !boundarySegment.interiorOnLeft;
+    if (interiorOnLeft) {
+      this.faces.push(
+        topStart, bottomEnd, bottomStart,
+        topStart, topEnd, bottomEnd,
+      );
+    } else {
+      this.faces.push(
+        topStart, bottomStart, bottomEnd,
+        topStart, bottomEnd, topEnd,
+      );
+    }
   }
 
   toGeometry(): BufferGeometry {
@@ -1279,7 +1304,7 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
   }
   const horizontalScale = options.californiaLatitudeSpanMeters / californiaProjectedSpanMeters;
   const regionBounds = getPolygonsBounds(region.polygons);
-  const zoom = getTerrainZoom(metadata, options.resolutionMeters);
+  const zoom = getTerrainExportZoom(metadata, options.resolutionMeters);
   const tiles = getExportTiles(metadata, zoom, regionBounds, center);
   if (tiles.length === 0) {
     throw new Error(`No terrain tiles are available at ${options.resolutionMeters} m resolution.`);
