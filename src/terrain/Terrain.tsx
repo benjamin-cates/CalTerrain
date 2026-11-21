@@ -28,6 +28,8 @@ import {
   createTerrainShaderUniforms,
   createTerrainStandardMaterial,
   getTerrainHeightTexture,
+  TERRAIN_ORNAMENT_PREVIEW_COLOR,
+  TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS,
 } from "./terrainShader";
 import { makeTerrainSkirtGeometry } from "./terrainSkirts";
 import { TERRAIN_TILE_MESH_SEGMENTS } from "./terrainHeight";
@@ -104,6 +106,7 @@ function TerrainTile({
   regionMap,
   regionMapMetadata,
   regionMapTexture,
+  previewSolidColor,
   clipPolygons,
   clipIndex,
   lakeMaskIndex,
@@ -119,6 +122,7 @@ function TerrainTile({
   regionMap: ViewSettings["regionMap"];
   regionMapMetadata: EcoregionMapMetadata | null;
   regionMapTexture: Texture | null;
+  previewSolidColor: string | null;
   clipPolygons: Position[][][];
   clipIndex: TerrainClipPolygonIndex;
   lakeMaskIndex: TerrainClipPolygonIndex | null;
@@ -158,7 +162,8 @@ function TerrainTile({
     [clipIndex, clipPolygons, tileLeft, tileSizeKm, tileTop],
   );
   const heightTexture = useMemo(() => getTerrainHeightTexture(texture), [texture]);
-  const regionMapEnabled = regionMap !== "none" && regionMapMetadata !== null &&
+  const regionMapEnabled = previewSolidColor === null &&
+    regionMap !== "none" && regionMapMetadata !== null &&
     regionMapTexture !== null;
   const regionMapBounds = useMemo(() => {
     if (!regionMapMetadata) return new Vector4();
@@ -177,6 +182,10 @@ function TerrainTile({
   const gradientHighColor = useMemo(
     () => new Color(terrainGradientHighColor),
     [terrainGradientHighColor],
+  );
+  const previewSolidColorValue = useMemo(
+    () => new Color(previewSolidColor ?? TERRAIN_ORNAMENT_PREVIEW_COLOR),
+    [previewSolidColor],
   );
   const shaderPalette = useMemo(() => {
     const paletteStops = heightPalette === "none"
@@ -202,6 +211,8 @@ function TerrainTile({
     uTerrainPaletteLinearInterpolation: { value: 0 },
     uTerrainPaletteSolid: { value: 0 },
     uTerrainSolidColor: { value: new Vector3(1, 1, 1) },
+    uTerrainPreviewSolidEnabled: { value: 0 },
+    uTerrainPreviewSolidColor: { value: new Vector3(1, 1, 1) },
   }), []);
   paletteUniforms.uTerrainPaletteStops.value = shaderPalette.stops;
   paletteUniforms.uTerrainPaletteStopCount.value = shaderPalette.count;
@@ -209,6 +220,12 @@ function TerrainTile({
     heightPalette === "rainbow" || heightPalette === "custom" ? 1 : 0;
   paletteUniforms.uTerrainPaletteSolid.value = heightPalette === "solid" ? 1 : 0;
   paletteUniforms.uTerrainSolidColor.value.set(solidColor.r, solidColor.g, solidColor.b);
+  paletteUniforms.uTerrainPreviewSolidEnabled.value = previewSolidColor === null ? 0 : 1;
+  paletteUniforms.uTerrainPreviewSolidColor.value.set(
+    previewSolidColorValue.r,
+    previewSolidColorValue.g,
+    previewSolidColorValue.b,
+  );
   const terrainUniforms = useMemo(
     () => ({
       ...heightUniforms,
@@ -241,10 +258,15 @@ function TerrainTile({
     () => createTerrainStandardMaterial(
       texture,
       terrainUniforms,
-      FrontSide,
+      previewSolidColor === null ? FrontSide : DoubleSide,
       true,
+      {
+        roughness: previewSolidColor === null
+          ? 0.96
+          : TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS,
+      },
     ),
-    [terrainUniforms, texture],
+    [previewSolidColor, terrainUniforms, texture],
   );
   const skirtMaterial = useMemo(
     () => createTerrainStandardMaterial(
@@ -252,9 +274,14 @@ function TerrainTile({
       skirtUniforms,
       DoubleSide,
       false,
-      { forceOpaque: true },
+      {
+        forceOpaque: true,
+        roughness: previewSolidColor === null
+          ? 0.96
+          : TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS,
+      },
     ),
-    [skirtUniforms, texture],
+    [previewSolidColor, skirtUniforms, texture],
   );
   useEffect(() => {
     retainTerrainTexture(image);
@@ -300,6 +327,7 @@ export function TerrainTiles({
   regionMap,
   regionMapMetadata,
   regionMapTexture,
+  previewSolidColor,
   clipPolygons,
   lakeMaskPolygons,
   tiles,
@@ -313,6 +341,7 @@ export function TerrainTiles({
   regionMap: ViewSettings["regionMap"];
   regionMapMetadata: EcoregionMapMetadata | null;
   regionMapTexture: Texture | null;
+  previewSolidColor: string | null;
   clipPolygons: Position[][][];
   lakeMaskPolygons: Position[][][];
   tiles: { z: number; x: number; y: number }[];
@@ -347,6 +376,7 @@ export function TerrainTiles({
             regionMap={regionMap}
             regionMapMetadata={regionMapMetadata}
             regionMapTexture={regionMapTexture}
+            previewSolidColor={previewSolidColor}
             clipPolygons={clipPolygons}
             clipIndex={clipIndex}
             lakeMaskIndex={lakeMaskIndex}

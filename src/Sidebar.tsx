@@ -62,7 +62,13 @@ import {
 import type {
   TerrainExportRegion,
   TerrainExportTriangleReport,
+  TerrainModelFileFormat,
 } from "./terrain/terrainExport";
+import type {
+  TerrainAccessory,
+  TerrainAccessoryType,
+  TerrainModelOptions,
+} from "./terrain/terrainOrnament";
 import type { TerrainHeightPalette } from "./terrain/terrainHeightPalette";
 import type {
   Position,
@@ -84,34 +90,36 @@ type Props = {
   regions: Region[];
   center: Position | null;
   selectedRegionId: string | null;
-  clipExportRegions: { id: string; name: string }[];
   canExportClipRegions: boolean;
-  onExportClipRegions: () => void;
   terrainExportBusy: boolean;
   terrainExportStatus: string | null;
   terrainExportError: string | null;
   terrainExportRegions: TerrainExportRegion[];
   terrainExportGroundScale: number;
   terrainExportTriangleReport: TerrainExportTriangleReport | null;
-  onExportTerrainRegion: (
+  onExportModel: (
+    format: TerrainModelFileFormat,
     regionId: string,
     resolutionMeters: number,
-    californiaLatitudeSpanMeters: number,
+    model: TerrainModelOptions,
   ) => void;
-  onExportTerrainZip: (resolutionMeters: number, californiaLatitudeSpanMeters: number) => void;
-  onExportTerrainCombined: (
-    resolutionMeters: number,
-    californiaLatitudeSpanMeters: number,
-  ) => void;
-  onExportImageRegion: (regionId: string, resolutionMeters: number) => void;
-  onExportImageCombined: (resolutionMeters: number) => void;
-  onExportImageZip: (resolutionMeters: number) => void;
-  exportFormat: "image" | "model";
-  onSetExportFormat: (format: "image" | "model") => void;
+  onExportImage: (regionId: string, resolutionMeters: number) => void;
+  onExportOutline: (regionId: string) => void;
+  onExportOutlineSvg: (regionId: string) => void;
+  exportFormat: "image" | "model" | "outline" | null;
+  onSetExportFormat: (format: "image" | "model" | "outline" | null) => void;
   resolutionIndex: number;
   onSetResolutionIndex: (index: number) => void;
-  selectedImageRegionId: string | null;
-  onSelectImageRegion: (regionId: string) => void;
+  latitudeSpanMm: number;
+  onSetLatitudeSpanMm: (millimeters: number) => void;
+  selectedExportRegionId: string | null;
+  onSelectExportRegion: (regionId: string) => void;
+  baseThicknessMm: number;
+  onSetBaseThicknessMm: (thickness: number) => void;
+  accessories: TerrainAccessory[];
+  onAddAccessory: (type: TerrainAccessoryType) => void;
+  onUpdateAccessory: (id: string, changes: Partial<TerrainAccessory>) => void;
+  onRemoveAccessory: (id: string) => void;
   heightPalette: TerrainHeightPalette;
   onSetHeightPalette: (palette: TerrainHeightPalette) => void;
   topographicOptions: Record<TopographicFeatureCategory, TopographicFeatureOption[]>;
@@ -2364,7 +2372,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         </div>
       )}
 
-      <ExportSection {...props} />
+      <ExportSection {...props} canExport={props.canExportClipRegions} />
     </aside>
   );
 });

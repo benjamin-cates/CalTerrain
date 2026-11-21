@@ -8,6 +8,132 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.terrain-model-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.terrain-accessories {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(224, 225, 209, 0.1);
+}
+
+.terrain-accessory-add-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.terrain-accessory-add-buttons button {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  gap: 4px;
+  padding: 7px 4px;
+  font-size: 10px;
+}
+
+.terrain-accessory-add-buttons svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.terrain-accessory-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.terrain-accessory {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(224, 225, 209, 0.14);
+  border-radius: 4px;
+}
+
+.terrain-accessory-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 11px;
+}
+
+.terrain-accessory-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terrain-accessory-more {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 4px !important;
+}
+
+.terrain-accessory-more svg {
+  width: 16px;
+  height: 16px;
+}
+
+.terrain-accessory-coordinates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.terrain-accessory-coordinates .control-field {
+  min-width: 0;
+}
+
+.terrain-accessory-sizing {
+  display: grid;
+  gap: 8px;
+}
+
+.terrain-accessory-popup {
+  z-index: 31;
+  width: min(360px, calc(100vw - 16px));
+  overflow-y: auto;
+}
+
+.terrain-accessory-properties {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.terrain-accessory input[type="number"] {
+  min-width: 0;
+  width: 100%;
+}
+
+.export-preview-cancel {
+  width: 100%;
+  margin: 8px 0 2px;
+}
+
+.outline-preview-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
 .control-section .height-palette-button {
   position: relative;
   display: grid;

@@ -9,6 +9,8 @@ import {
   createTerrainExportRegions,
   createTerrainGlb,
   createTerrainObj,
+  createTerrainModelGlb,
+  createTerrainModelStl,
   estimateTerrainTriangleCount,
   formatTerrainExportScale,
   getTerrainImageDimensions,
@@ -22,6 +24,10 @@ import {
   TERRAIN_EXPORT_RESOLUTIONS,
   type TerrainExportRegion,
 } from "../terrain/terrainExport";
+import {
+  getTerrainAccessoryBaseOverlapMm,
+  type TerrainModelOptions,
+} from "../terrain/terrainOrnament";
 
 function polygonFeature(points: Position[], center: Position, name: string) {
   const ring = [...points, points[0] ?? points[points.length - 1] ?? [0, 0]]
@@ -246,7 +252,7 @@ describe("terrain export", () => {
       .toBeLessThan(estimateTerrainTriangleCount(region, 100));
   });
 
-  it("creates a closed mesh and Draco-compressed GLB with terrain top, bottom, and clipped walls", async () => {
+  it("creates watertight terrain and 3D model meshes with clipped walls and a Draco GLB", async () => {
     const center: Position = [0, 0];
     const state: BoundaryCollection = {
       type: "FeatureCollection",
@@ -443,6 +449,259 @@ describe("terrain export", () => {
           }
         }
         expect(decodedFaceCount).toBe(totalTriangleCount);
+
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          pixels[offset] = 129;
+          pixels[offset + 1] = 0;
+          pixels[offset + 2] = 0;
+          pixels[offset + 3] = 255;
+        }
+        const modelObj = await createTerrainObj({
+          metadata,
+          center,
+          californiaPolygons: prepared.californiaPolygons,
+          region: prepared.regions[0]!,
+          resolutionMeters: 10_000,
+          californiaLatitudeSpanMeters: 40_000,
+          verticalExaggeration: 1,
+        }, {
+          baseThicknessMm: 3,
+          latitudeSpanMm: 10,
+          accessories: [{
+            id: "handle",
+            type: "handle",
+            position: fromLocal([30, 30], center),
+            sizeMm: 1,
+            rotationDegrees: 0,
+          }, {
+            id: "heart",
+            type: "heart",
+            position: fromLocal([26, 30], center),
+            sizeMm: 1,
+            rotationDegrees: 15,
+            thicknessMm: 3,
+          }, {
+            id: "star",
+            type: "star",
+            position: fromLocal([34, 30], center),
+            sizeMm: 1,
+            rotationDegrees: -10,
+            thicknessMm: 5,
+          }],
+        });
+        const modelFaces = modelObj.split("\n")
+          .filter((line) => line.startsWith("f "))
+          .map((line) => line.slice(2).split(" ").map(Number));
+        const modelVertices = modelObj.split("\n")
+          .filter((line) => line.startsWith("v "))
+          .map((line) => line.slice(2).split(" ").map(Number) as [number, number, number]);
+        const modelEdges = new Map<string, number>();
+        const orientedModelEdges = new Map<string, { count: number; direction: number }>();
+        const vertexLinks = new Map<number, Map<number, Set<number>>>();
+        for (const face of modelFaces) {
+          if (face.length !== 3) continue;
+          const [a, b, c] = face;
+          const first = modelVertices[(a ?? 0) - 1];
+          const second = modelVertices[(b ?? 0) - 1];
+          const third = modelVertices[(c ?? 0) - 1];
+          if (!first || !second || !third) continue;
+          const indices = [a!, b!, c!];
+          for (let edgeIndex = 0; edgeIndex < 3; edgeIndex += 1) {
+            const start = indices[edgeIndex]!;
+            const end = indices[(edgeIndex + 1) % 3]!;
+            const edge = start < end ? `${start}:${end}` : `${end}:${start}`;
+            const occurrence = orientedModelEdges.get(edge) ?? { count: 0, direction: 0 };
+            occurrence.count += 1;
+            occurrence.direction += start < end ? 1 : -1;
+            orientedModelEdges.set(edge, occurrence);
+          }
+          for (let vertexIndex = 0; vertexIndex < 3; vertexIndex += 1) {
+            const vertex = indices[vertexIndex]!;
+            const firstNeighbor = indices[(vertexIndex + 1) % 3]!;
+            const secondNeighbor = indices[(vertexIndex + 2) % 3]!;
+            let link = vertexLinks.get(vertex);
+            if (!link) {
+              link = new Map();
+              vertexLinks.set(vertex, link);
+            }
+            for (const neighbor of [firstNeighbor, secondNeighbor]) {
+              let neighbors = link.get(neighbor);
+              if (!neighbors) {
+                neighbors = new Set();
+                link.set(neighbor, neighbors);
+              }
+              neighbors.add(neighbor === firstNeighbor ? secondNeighbor : firstNeighbor);
+            }
+          }
+          for (let edgeIndex = 0; edgeIndex < face.length; edgeIndex += 1) {
+            const first = face[edgeIndex];
+            const second = face[(edgeIndex + 1) % face.length];
+            if (first === undefined || second === undefined) continue;
+            const edge = first < second ? `${first}:${second}` : `${second}:${first}`;
+            modelEdges.set(edge, (modelEdges.get(edge) ?? 0) + 1);
+          }
+        }
+        expect(modelFaces.length).toBeGreaterThan(0);
+        expect(modelEdges.size).toBeGreaterThan(0);
+        expect([...modelEdges.values()].every((count) => count === 2)).toBe(true);
+        expect([...orientedModelEdges.values()].every((edge) =>
+          edge.count === 2 && edge.direction === 0
+        )).toBe(true);
+        expect([...vertexLinks.values()].every((link) => {
+          if (![...link.values()].every((neighbors) => neighbors.size === 2)) return false;
+          const first = link.keys().next().value;
+          if (first === undefined) return false;
+          const visited = new Set([first]);
+          const pending = [first];
+          while (pending.length > 0) {
+            const vertex = pending.pop();
+            if (vertex === undefined) continue;
+            for (const neighbor of link.get(vertex) ?? []) {
+              if (visited.has(neighbor)) continue;
+              visited.add(neighbor);
+              pending.push(neighbor);
+            }
+          }
+          return visited.size === link.size;
+        })).toBe(true);
+        expect(Math.min(...modelVertices.map(([, y]) => y))).toBeCloseTo(-0.003, 5);
+        expect(Math.max(...modelVertices.map(([, y]) => y))).toBeGreaterThan(0);
+        expect(Math.max(...modelVertices.map(([, , z]) => z)) -
+          Math.min(...modelVertices.map(([, , z]) => z))).toBeCloseTo(0.01, 5);
+        const modelRegionSpanKm = Math.max(
+          ...prepared.regions[0]!.polygons.flat(2).map(([, z]) => z),
+        ) - Math.min(...prepared.regions[0]!.polygons.flat(2).map(([, z]) => z));
+        const modelMetersPerKm = 0.01 / modelRegionSpanKm;
+        expect(modelVertices.some(([, y]) =>
+          Math.abs(y + getTerrainAccessoryBaseOverlapMm(3) / 1_000) < 1e-7
+        )).toBe(true);
+        const handleCenterX = 30 * modelMetersPerKm;
+        const handleCenterZ = 30 * modelMetersPerKm;
+        const handleInnerRadiusMeters = 0.4 * 1 / 1_000;
+        const handleSkirtEdges: [number, number][] = [];
+        for (const face of modelFaces) {
+          for (let edgeIndex = 0; edgeIndex < face.length; edgeIndex += 1) {
+            const first = modelVertices[(face[edgeIndex] ?? 0) - 1];
+            const second = modelVertices[(face[(edgeIndex + 1) % face.length] ?? 0) - 1];
+            if (!first || !second) continue;
+            const [firstX, firstY, firstZ] = first;
+            const [secondX, secondY, secondZ] = second;
+            if (
+              firstX === undefined || firstY === undefined || firstZ === undefined ||
+              secondX === undefined || secondY === undefined || secondZ === undefined
+            ) continue;
+            const planDistance = Math.hypot(firstX - secondX, firstZ - secondZ);
+            const radius = Math.hypot(firstX - handleCenterX, firstZ - handleCenterZ);
+            if (
+              planDistance < 1e-8 &&
+              Math.abs(radius - handleInnerRadiusMeters) < 1e-6 &&
+              Math.abs(firstY - secondY) > 1e-6
+            ) {
+              handleSkirtEdges.push([firstY, secondY]);
+            }
+          }
+        }
+        expect(handleSkirtEdges.length).toBeGreaterThan(0);
+        expect(Math.max(...handleSkirtEdges.flat())).toBeGreaterThan(0);
+        expect(Math.min(...handleSkirtEdges.flat())).toBeCloseTo(-0.003, 5);
+        const modelExportOptions = {
+          metadata,
+          center,
+          californiaPolygons: prepared.californiaPolygons,
+          region: prepared.regions[0]!,
+          resolutionMeters: 10_000,
+          verticalExaggeration: 1,
+        };
+        const modelOptions: TerrainModelOptions = {
+          baseThicknessMm: 3,
+          latitudeSpanMm: 10,
+          accessories: [
+            {
+              id: "handle",
+              type: "handle",
+              position: fromLocal([30, 30], center),
+              sizeMm: 1,
+              rotationDegrees: 0,
+            },
+            {
+              id: "heart",
+              type: "heart",
+              position: fromLocal([26, 30], center),
+              sizeMm: 1,
+              rotationDegrees: 15,
+              thicknessMm: 3,
+            },
+            {
+              id: "star",
+              type: "star",
+              position: fromLocal([34, 30], center),
+              sizeMm: 1,
+              rotationDegrees: -10,
+              thicknessMm: 5,
+            },
+          ],
+        };
+        const modelGlb = await createTerrainModelGlb(
+          modelExportOptions,
+          modelOptions,
+          100_000,
+        );
+        expect(new DataView(modelGlb).getUint32(0, true)).toBe(0x46546c67);
+        let modelTriangleCount = 0;
+        const modelStl = await createTerrainModelStl({
+          ...modelExportOptions,
+          onTriangleCount: (count) => {
+            modelTriangleCount = count;
+          },
+        }, modelOptions);
+        const stlView = new DataView(modelStl);
+        const stlTriangleCount = stlView.getUint32(80, true);
+        expect(new TextDecoder().decode(new Uint8Array(modelStl, 0, 80)))
+          .toContain("CalTerrain binary STL");
+        expect(stlTriangleCount).toBe(modelTriangleCount);
+        expect(modelStl.byteLength).toBe(84 + stlTriangleCount * 50);
+        const stlBounds = {
+          minX: Infinity,
+          maxX: -Infinity,
+          minY: Infinity,
+          maxY: -Infinity,
+          minZ: Infinity,
+          maxZ: -Infinity,
+        };
+        for (let facetOffset = 84; facetOffset < modelStl.byteLength; facetOffset += 50) {
+          for (let vertexIndex = 0; vertexIndex < 3; vertexIndex += 1) {
+            const vertexOffset = facetOffset + 12 + vertexIndex * 12;
+            const x = stlView.getFloat32(vertexOffset, true);
+            const y = stlView.getFloat32(vertexOffset + 4, true);
+            const z = stlView.getFloat32(vertexOffset + 8, true);
+            stlBounds.minX = Math.min(stlBounds.minX, x);
+            stlBounds.maxX = Math.max(stlBounds.maxX, x);
+            stlBounds.minY = Math.min(stlBounds.minY, y);
+            stlBounds.maxY = Math.max(stlBounds.maxY, y);
+            stlBounds.minZ = Math.min(stlBounds.minZ, z);
+            stlBounds.maxZ = Math.max(stlBounds.maxZ, z);
+          }
+        }
+        expect(stlBounds.minX).toBeCloseTo(Math.min(...modelVertices.map(([x]) => x)), 5);
+        expect(stlBounds.maxX).toBeCloseTo(Math.max(...modelVertices.map(([x]) => x)), 5);
+        expect(stlBounds.minY).toBeCloseTo(-Math.max(...modelVertices.map(([, , z]) => z)), 5);
+        expect(stlBounds.maxY).toBeCloseTo(-Math.min(...modelVertices.map(([, , z]) => z)), 5);
+        expect(stlBounds.minZ).toBeCloseTo(Math.min(...modelVertices.map(([, y]) => y)), 5);
+        expect(stlBounds.maxZ).toBeCloseTo(Math.max(...modelVertices.map(([, y]) => y)), 5);
+        const unclippedHandleStl = await createTerrainModelStl(modelExportOptions, {
+          baseThicknessMm: 3,
+          latitudeSpanMm: 10,
+          accessories: [{
+            id: "handle",
+            type: "handle",
+            position: fromLocal([30, 30], center),
+            sizeMm: 1,
+            rotationDegrees: 0,
+            clipTerrain: false,
+          }],
+        });
+        const unclippedHandleView = new DataView(unclippedHandleStl);
+        expect(unclippedHandleView.getUint32(80, true)).toBeGreaterThan(0);
       } finally {
         draco.destroy(decoder);
       }

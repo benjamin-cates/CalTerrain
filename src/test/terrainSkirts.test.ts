@@ -99,6 +99,8 @@ describe("terrain boundary skirts", () => {
       uTerrainPaletteStopCount: { value: 1 },
       uTerrainPaletteSolid: { value: 0 },
       uTerrainSolidColor: { value: new Vector3() },
+      uTerrainPreviewSolidEnabled: { value: 0 },
+      uTerrainPreviewSolidColor: { value: new Vector3(1, 1, 1) },
       uTerrainRegionMap: { value: texture },
       uTerrainRegionMapEnabled: { value: 0 },
       uTerrainRegionMapBounds: { value: new Vector4() },
@@ -121,7 +123,16 @@ describe("terrain boundary skirts", () => {
     expect(material.transparent).toBe(false);
     expect(material.alphaTest).toBe(0);
     expect(shader.fragmentShader).toContain(
+      "uniform float uTerrainPreviewSolidEnabled;",
+    );
+    expect(shader.fragmentShader).toContain(
+      "uniform vec3 uTerrainPreviewSolidColor;",
+    );
+    expect(shader.fragmentShader).toContain(
       "#include <map_fragment>\ndiffuseColor.a = 1.0;",
+    );
+    expect(shader.fragmentShader).toContain(
+      "diffuseColor.rgb = uTerrainPreviewSolidColor;",
     );
     material.dispose();
     texture.dispose();

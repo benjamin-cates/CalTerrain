@@ -1,4 +1,9 @@
-import { intersection, type MultiPolygon } from "polygon-clipping";
+import {
+  difference,
+  intersection,
+  type MultiPolygon,
+  union,
+} from "polygon-clipping";
 import {
   BufferGeometry,
   Float32BufferAttribute,
@@ -40,6 +45,15 @@ import {
   colorizeTerrainHeightPixels,
   type TerrainHeightPalette,
 } from "./terrainHeightPalette";
+import {
+  createTerrainAccessoryOutline,
+  createTerrainModelFootprints,
+  getTerrainAccessoryBaseOverlapMm,
+  getTerrainRegionLatitudeSpanKm,
+  type LocalTerrainAccessory,
+  type TerrainAccessory,
+  type TerrainModelOptions,
+} from "./terrainOrnament";
 
 export const TERRAIN_EXPORT_RESOLUTIONS = [1_920, 960, 480, 240, 120, 60, 30] as const;
 const COARSE_TERRAIN_TILE_RESOLUTION_METERS = 480;
@@ -55,6 +69,8 @@ export type TerrainExportRegion = {
   name: string;
   polygons: Position[][][];
 };
+
+export type TerrainModelFileFormat = "glb" | "stl";
 
 export type TerrainExportBoundingBox = {
   id: string;
@@ -630,6 +646,39 @@ function segmentKey(start: Position, end: Position): string {
 
 type BottomTriangle = [Position, Position, Position];
 
+type OrnamentBoundaryHeightEdge = {
+  start: Position;
+  end: Position;
+  startHeight: number;
+  endHeight: number;
+  boundarySegment: TerrainClipSegment;
+};
+
+const ORNAMENT_BOUNDARY_CELL_KM = 5;
+
+function boundaryCellKey(x: number, z: number): string {
+  return `${x},${z}`;
+}
+
+function getSegmentProjection(
+  point: Position,
+  start: Position,
+  end: Position,
+): { amount: number; distance: number } | null {
+  const deltaX = end[0] - start[0];
+  const deltaZ = end[1] - start[1];
+  const lengthSquared = deltaX * deltaX + deltaZ * deltaZ;
+  if (lengthSquared === 0) return null;
+  const amount = ((point[0] - start[0]) * deltaX +
+    (point[1] - start[1]) * deltaZ) / lengthSquared;
+  const projectedX = start[0] + amount * deltaX;
+  const projectedZ = start[1] + amount * deltaZ;
+  return {
+    amount,
+    distance: Math.hypot(point[0] - projectedX, point[1] - projectedZ),
+  };
+}
+
 function refineBottomTriangles(
   triangles: BottomTriangle[],
   refinementCount: number,
@@ -657,6 +706,14 @@ class ObjBuilder {
   private readonly vertexIndices = new Map<string, number>();
   private readonly wallEdges = new Set<string>();
   private readonly bottomBoundaryPoints = new Map<string, Map<string, Position>>();
+  private readonly ornamentBoundaryHeightEdges = new Map<
+    string,
+    OrnamentBoundaryHeightEdge
+  >();
+  private readonly ornamentBoundaryHeightBuckets = new Map<
+    string,
+    Set<OrnamentBoundaryHeightEdge>
+  >();
 
   constructor(
     private readonly horizontalScale: number,
@@ -799,6 +856,331 @@ class ObjBuilder {
     return refinedTriangles.length;
   }
 
+  addTopMesh(polygons: Position[][][]): void {
+    for (const polygon of polygons) {
+      const rings = polygon.map(ringPoints);
+      const outer = rings[0];
+      if (!outer || outer.length < 3) continue;
+      const holes = rings.slice(1);
+      const points = [...outer, ...holes.flat()];
+      for (const face of ShapeUtils.triangulateShape(outer, holes)) {
+        const first = points[face[0] ?? -1];
+        const second = points[face[1] ?? -1];
+        const third = points[face[2] ?? -1];
+        if (!first || !second || !third) continue;
+        this.addTopTriangle([
+          [first.x * 1_000, 0, first.y * 1_000],
+          [second.x * 1_000, 0, second.y * 1_000],
+          [third.x * 1_000, 0, third.y * 1_000],
+        ]);
+      }
+    }
+  }
+
+  addAccessoryPrism(
+    polygon: Position[],
+    bottomElevation: number,
+    topElevation: number,
+  ): void {
+    const closed = polygon.length > 1 &&
+      polygon[0]?.[0] === polygon[polygon.length - 1]?.[0] &&
+      polygon[0]?.[1] === polygon[polygon.length - 1]?.[1];
+    const ring = closed ? polygon.slice(0, -1) : polygon;
+    if (ring.length < 3) return;
+    const points = ring.map((point) => new Vector2(point[0], point[1]));
+    const area = signedArea2D(ring);
+    const interiorOnLeft = area > 0;
+    for (const face of ShapeUtils.triangulateShape(points, [])) {
+      const first = ring[face[0] ?? -1];
+      const second = ring[face[1] ?? -1];
+      const third = ring[face[2] ?? -1];
+      if (!first || !second || !third) continue;
+      this.addTopTriangle([
+        [first[0] * 1_000, topElevation, first[1] * 1_000],
+        [second[0] * 1_000, topElevation, second[1] * 1_000],
+        [third[0] * 1_000, topElevation, third[1] * 1_000],
+      ]);
+      this.addBottomTriangle([first, second, third], bottomElevation);
+    }
+    for (let index = 0; index < ring.length; index += 1) {
+      const start = ring[index];
+      const end = ring[(index + 1) % ring.length];
+      if (!start || !end) continue;
+      const boundarySegment: TerrainClipSegment = {
+        start,
+        end,
+        minX: Math.min(start[0], end[0]),
+        minZ: Math.min(start[1], end[1]),
+        maxX: Math.max(start[0], end[0]),
+        maxZ: Math.max(start[1], end[1]),
+        polygonIndex: -1,
+        interiorOnLeft,
+      };
+      this.addWall(
+        start,
+        end,
+        topElevation,
+        topElevation,
+        bottomElevation,
+        boundarySegment,
+      );
+    }
+  }
+
+  addOrnamentBoundaryEdge(
+    start: Position,
+    end: Position,
+    startHeight: number,
+    endHeight: number,
+    boundarySegment: TerrainClipSegment,
+  ): void {
+    if (positionKey(start) === positionKey(end)) return;
+    if (startHeight * endHeight < 0) {
+      const amount = startHeight / (startHeight - endHeight);
+      const crossing: Position = [
+        start[0] + (end[0] - start[0]) * amount,
+        start[1] + (end[1] - start[1]) * amount,
+      ];
+      this.addOrnamentBoundaryEdge(
+        start,
+        crossing,
+        startHeight,
+        0,
+        boundarySegment,
+      );
+      this.addOrnamentBoundaryEdge(
+        crossing,
+        end,
+        0,
+        endHeight,
+        boundarySegment,
+      );
+      return;
+    }
+    const edgeKey = segmentKey(start, end);
+    if (this.ornamentBoundaryHeightEdges.has(edgeKey)) return;
+    const edge: OrnamentBoundaryHeightEdge = {
+      start,
+      end,
+      startHeight,
+      endHeight,
+      boundarySegment,
+    };
+    this.ornamentBoundaryHeightEdges.set(edgeKey, edge);
+    const minX = Math.floor(
+      Math.min(start[0], end[0]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const maxX = Math.floor(
+      Math.max(start[0], end[0]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const minZ = Math.floor(
+      Math.min(start[1], end[1]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const maxZ = Math.floor(
+      Math.max(start[1], end[1]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    for (let x = minX; x <= maxX; x += 1) {
+      for (let z = minZ; z <= maxZ; z += 1) {
+        const key = boundaryCellKey(x, z);
+        let bucket = this.ornamentBoundaryHeightBuckets.get(key);
+        if (!bucket) {
+          bucket = new Set();
+          this.ornamentBoundaryHeightBuckets.set(key, bucket);
+        }
+        bucket.add(edge);
+      }
+    }
+  }
+
+  addOrnamentWalls(
+    polygons: Position[][][],
+    center: Position,
+    innerRadiusKm: number,
+    outerRadiusKm: number,
+    bottomElevation: number,
+    clipTerrain: boolean,
+  ): void {
+    this.addOrnamentSeamWalls(center, innerRadiusKm, outerRadiusKm);
+    for (const polygon of polygons) {
+      for (const [ringIndex, rawRing] of polygon.entries()) {
+        const isClosed = rawRing.length > 1 &&
+          rawRing[0]?.[0] === rawRing[rawRing.length - 1]?.[0] &&
+          rawRing[0]?.[1] === rawRing[rawRing.length - 1]?.[1];
+        const ring = isClosed ? rawRing.slice(0, -1) : rawRing;
+        if (ring.length < 3) continue;
+        const ringInteriorOnLeft = signedArea2D(ring) > 0;
+        const interiorOnLeft = ringIndex === 0
+          ? ringInteriorOnLeft
+          : !ringInteriorOnLeft;
+        for (let index = 0; index < ring.length; index += 1) {
+          const start = ring[index];
+          const end = ring[(index + 1) % ring.length];
+          if (!start || !end) continue;
+          const edgeX = end[0] - start[0];
+          const edgeZ = end[1] - start[1];
+          const length = Math.hypot(edgeX, edgeZ);
+          if (length === 0) continue;
+          const boundarySegment: TerrainClipSegment = {
+            start,
+            end,
+            minX: Math.min(start[0], end[0]),
+            minZ: Math.min(start[1], end[1]),
+            maxX: Math.max(start[0], end[0]),
+            maxZ: Math.max(start[1], end[1]),
+            polygonIndex: -1,
+            interiorOnLeft,
+          };
+          const candidates = this.getOrnamentBoundaryEdges(start, end);
+          const splitPoints: Array<{ point: Position; amount: number }> = [
+            { point: start, amount: 0 },
+            { point: end, amount: 1 },
+          ];
+          for (const candidate of candidates) {
+            for (const point of [candidate.start, candidate.end]) {
+              const projection = getSegmentProjection(point, start, end);
+              if (!projection || projection.distance > POINT_TOLERANCE_KM) {
+                continue;
+              }
+              const amountTolerance = POINT_TOLERANCE_KM / length;
+              if (
+                projection.amount < -amountTolerance ||
+                projection.amount > 1 + amountTolerance
+              ) continue;
+              splitPoints.push({
+                point: [
+                  start[0] + edgeX * Math.max(0, Math.min(1, projection.amount)),
+                  start[1] + edgeZ * Math.max(0, Math.min(1, projection.amount)),
+                ],
+                amount: Math.max(0, Math.min(1, projection.amount)),
+              });
+            }
+          }
+          splitPoints.sort((left, right) => left.amount - right.amount);
+          const uniquePoints = splitPoints.filter((entry, pointIndex) =>
+            pointIndex === 0 ||
+            positionKey(entry.point) !== positionKey(
+              splitPoints[pointIndex - 1]!.point,
+            )
+          );
+          for (let pointIndex = 0; pointIndex < uniquePoints.length - 1; pointIndex += 1) {
+            const first = uniquePoints[pointIndex];
+            const second = uniquePoints[pointIndex + 1];
+            if (!first || !second || second.amount - first.amount <= 1e-10) continue;
+            const midpoint: Position = [
+              (first.point[0] + second.point[0]) / 2,
+              (first.point[1] + second.point[1]) / 2,
+            ];
+            let topStart = 0;
+            let topEnd = 0;
+            const midpointRadius = Math.hypot(
+              midpoint[0] - center[0],
+              midpoint[1] - center[1],
+            );
+            const isHandleOpeningEdge = clipTerrain &&
+              midpointRadius >= innerRadiusKm * 0.99 &&
+              midpointRadius <= innerRadiusKm + POINT_TOLERANCE_KM;
+            if (!isHandleOpeningEdge) {
+              const heightEdge = candidates.find((candidate) => {
+                const projection = getSegmentProjection(
+                  midpoint,
+                  candidate.start,
+                  candidate.end,
+                );
+                return projection !== null &&
+                  projection.amount >= -1e-8 &&
+                  projection.amount <= 1 + 1e-8 &&
+                  projection.distance <= POINT_TOLERANCE_KM;
+              });
+              if (heightEdge) {
+                topStart = Math.max(0, this.getOrnamentEdgeHeight(heightEdge, first.point));
+                topEnd = Math.max(0, this.getOrnamentEdgeHeight(heightEdge, second.point));
+              }
+            }
+            this.addWall(
+              first.point,
+              second.point,
+              topStart,
+              topEnd,
+              bottomElevation,
+              boundarySegment,
+              boundarySegment,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  private getOrnamentBoundaryEdges(
+    start: Position,
+    end: Position,
+  ): OrnamentBoundaryHeightEdge[] {
+    const minX = Math.floor(
+      Math.min(start[0], end[0]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const maxX = Math.floor(
+      Math.max(start[0], end[0]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const minZ = Math.floor(
+      Math.min(start[1], end[1]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const maxZ = Math.floor(
+      Math.max(start[1], end[1]) / ORNAMENT_BOUNDARY_CELL_KM,
+    );
+    const edges = new Set<OrnamentBoundaryHeightEdge>();
+    for (let x = minX; x <= maxX; x += 1) {
+      for (let z = minZ; z <= maxZ; z += 1) {
+        const bucket = this.ornamentBoundaryHeightBuckets.get(
+          boundaryCellKey(x, z),
+        );
+        if (bucket) for (const edge of bucket) edges.add(edge);
+      }
+    }
+    return [...edges];
+  }
+
+  private getOrnamentEdgeHeight(
+    edge: OrnamentBoundaryHeightEdge,
+    point: Position,
+  ): number {
+    const projection = getSegmentProjection(point, edge.start, edge.end);
+    if (!projection) return edge.startHeight;
+    const amount = Math.max(0, Math.min(1, projection.amount));
+    return edge.startHeight + (edge.endHeight - edge.startHeight) * amount;
+  }
+
+  private addOrnamentSeamWalls(
+    center: Position,
+    innerRadiusKm: number,
+    outerRadiusKm: number,
+  ): void {
+    for (const edge of this.ornamentBoundaryHeightEdges.values()) {
+      const midpoint: Position = [
+        (edge.start[0] + edge.end[0]) / 2,
+        (edge.start[1] + edge.end[1]) / 2,
+      ];
+      const radius = Math.hypot(
+        midpoint[0] - center[0],
+        midpoint[1] - center[1],
+      );
+      if (
+        radius < innerRadiusKm - POINT_TOLERANCE_KM ||
+        radius > outerRadiusKm + POINT_TOLERANCE_KM
+      ) continue;
+      const startHeight = Math.max(0, edge.startHeight);
+      const endHeight = Math.max(0, edge.endHeight);
+      if (startHeight === 0 && endHeight === 0) continue;
+      this.addWall(
+        edge.start,
+        edge.end,
+        startHeight,
+        endHeight,
+        0,
+        edge.boundarySegment,
+      );
+    }
+  }
+
   addWall(
     start: Position,
     end: Position,
@@ -806,11 +1188,15 @@ class ObjBuilder {
     endHeight: number,
     bottomElevation: number,
     boundarySegment: TerrainClipSegment,
+    bottomBoundarySegment: TerrainClipSegment = boundarySegment,
   ): void {
     const startKey = positionKey(start);
     const endKey = positionKey(end);
     if (startKey === endKey) return;
-    const sideKey = segmentKey(boundarySegment.start, boundarySegment.end);
+    const sideKey = segmentKey(
+      bottomBoundarySegment.start,
+      bottomBoundarySegment.end,
+    );
     let points = this.bottomBoundaryPoints.get(sideKey);
     if (!points) {
       points = new Map();
@@ -820,8 +1206,18 @@ class ObjBuilder {
     points.set(endKey, end);
 
     const edgeKey = segmentKey(start, end);
-    if (this.wallEdges.has(edgeKey)) return;
-    this.wallEdges.add(edgeKey);
+    const startHeightKey = (startHeight * this.horizontalScale *
+      this.verticalExaggeration).toFixed(7);
+    const endHeightKey = (endHeight * this.horizontalScale *
+      this.verticalExaggeration).toFixed(7);
+    const bottomHeightKey = (bottomElevation * this.horizontalScale *
+      this.verticalExaggeration).toFixed(7);
+    const orderedHeightKey = startKey < endKey
+      ? `${startHeightKey}|${endHeightKey}`
+      : `${endHeightKey}|${startHeightKey}`;
+    const wallKey = `${edgeKey}|${orderedHeightKey}|${bottomHeightKey}`;
+    if (this.wallEdges.has(wallKey)) return;
+    this.wallEdges.add(wallKey);
 
     const topStart = this.addVertex([start[0] * 1_000, startHeight, start[1] * 1_000]);
     const topEnd = this.addVertex([end[0] * 1_000, endHeight, end[1] * 1_000]);
@@ -864,6 +1260,8 @@ class ObjBuilder {
     this.vertexIndices.clear();
     this.wallEdges.clear();
     this.bottomBoundaryPoints.clear();
+    this.ornamentBoundaryHeightEdges.clear();
+    this.ornamentBoundaryHeightBuckets.clear();
   }
 
   toString(name: string): string {
@@ -877,6 +1275,62 @@ class ObjBuilder {
       faces.push(`f ${this.faces[index]! + 1} ${this.faces[index + 1]! + 1} ${this.faces[index + 2]! + 1}`);
     }
     return `o ${safeName}\n${vertices.join("\n")}\n${faces.join("\n")}\n`;
+  }
+
+  toBinaryStl(name: string): ArrayBuffer {
+    const triangleCount = this.faces.length / 3;
+    if (!Number.isSafeInteger(triangleCount) || triangleCount > 0xffff_ffff) {
+      throw new Error("The terrain mesh has too many triangles for binary STL.");
+    }
+    const buffer = new ArrayBuffer(84 + triangleCount * 50);
+    const header = utf8Encoder.encode(
+      `CalTerrain binary STL: ${name.replace(/[\r\n]/g, " ").trim() || "Terrain"}`,
+    );
+    new Uint8Array(buffer, 0, 80).set(header.subarray(0, 80));
+    const view = new DataView(buffer);
+    view.setUint32(80, triangleCount, true);
+    let offset = 84;
+    for (let faceIndex = 0; faceIndex < this.faces.length; faceIndex += 3) {
+      const firstOffset = this.faces[faceIndex]! * 3;
+      const secondOffset = this.faces[faceIndex + 1]! * 3;
+      const thirdOffset = this.faces[faceIndex + 2]! * 3;
+      const firstX = this.vertices[firstOffset]!;
+      const firstY = -this.vertices[firstOffset + 2]!;
+      const firstZ = this.vertices[firstOffset + 1]!;
+      const secondX = this.vertices[secondOffset]!;
+      const secondY = -this.vertices[secondOffset + 2]!;
+      const secondZ = this.vertices[secondOffset + 1]!;
+      const thirdX = this.vertices[thirdOffset]!;
+      const thirdY = -this.vertices[thirdOffset + 2]!;
+      const thirdZ = this.vertices[thirdOffset + 1]!;
+      const abX = secondX - firstX;
+      const abY = secondY - firstY;
+      const abZ = secondZ - firstZ;
+      const acX = thirdX - firstX;
+      const acY = thirdY - firstY;
+      const acZ = thirdZ - firstZ;
+      const normalX = abY * acZ - abZ * acY;
+      const normalY = abZ * acX - abX * acZ;
+      const normalZ = abX * acY - abY * acX;
+      const normalLength = Math.hypot(normalX, normalY, normalZ);
+      const normalScale = normalLength > 0 ? 1 / normalLength : 0;
+      view.setFloat32(offset, normalX * normalScale, true);
+      view.setFloat32(offset + 4, normalY * normalScale, true);
+      view.setFloat32(offset + 8, normalZ * normalScale, true);
+      view.setFloat32(offset + 12, firstX, true);
+      view.setFloat32(offset + 16, firstY, true);
+      view.setFloat32(offset + 20, firstZ, true);
+      view.setFloat32(offset + 24, secondX, true);
+      view.setFloat32(offset + 28, secondY, true);
+      view.setFloat32(offset + 32, secondZ, true);
+      view.setFloat32(offset + 36, thirdX, true);
+      view.setFloat32(offset + 40, thirdY, true);
+      view.setFloat32(offset + 44, thirdZ, true);
+      offset += 48;
+      view.setUint16(offset, 0, true);
+      offset += 2;
+    }
+    return buffer;
   }
 }
 
@@ -929,6 +1383,74 @@ function addFullTerrainTriangle(
   );
 }
 
+type HeightVertex = { point: Position; height: number };
+
+function clipTriangleAtSeaLevel(
+  triangle: [Position, Position, Position],
+  heights: [number, number, number],
+  keepAboveSeaLevel: boolean,
+): HeightVertex[] {
+  const vertices = triangle.map((point, index) => ({
+    point,
+    height: heights[index] ?? 0,
+  }));
+  if (vertices.every(({ height }) => height === 0)) {
+    return keepAboveSeaLevel ? vertices : [];
+  }
+  const clipped: HeightVertex[] = [];
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = vertices[index];
+    const next = vertices[(index + 1) % vertices.length];
+    if (!current || !next) continue;
+    const currentInside = keepAboveSeaLevel
+      ? current.height >= 0
+      : current.height <= 0;
+    const nextInside = keepAboveSeaLevel
+      ? next.height >= 0
+      : next.height < 0;
+    if (currentInside) clipped.push(current);
+    if (current.height * next.height < 0) {
+      const amount = current.height / (current.height - next.height);
+      clipped.push({
+        point: [
+          current.point[0] + (next.point[0] - current.point[0]) * amount,
+          current.point[1] + (next.point[1] - current.point[1]) * amount,
+        ],
+        height: 0,
+      });
+    }
+  }
+  return clipped;
+}
+
+function addOrnamentSurfaceTriangle(
+  builder: ObjBuilder,
+  triangle: [Position, Position, Position],
+  heights: [number, number, number],
+): void {
+  for (const [aboveSeaLevel, surfaceHeight] of [
+    [true, false],
+    [false, true],
+  ] as const) {
+    const polygon = clipTriangleAtSeaLevel(triangle, heights, aboveSeaLevel);
+    for (let index = 1; index < polygon.length - 1; index += 1) {
+      const first = polygon[0];
+      const second = polygon[index];
+      const third = polygon[index + 1];
+      if (!first || !second || !third) continue;
+      addFullTerrainTriangle(
+        builder,
+        [first.point, second.point, third.point],
+        surfaceHeight ? [0, 0, 0] : [
+          first.height,
+          second.height,
+          third.height,
+        ],
+      );
+    }
+  }
+}
+
 function addTriangleWithClipBoundary(
   builder: ObjBuilder,
   triangle: [Position, Position, Position],
@@ -937,6 +1459,11 @@ function addTriangleWithClipBoundary(
   clipIndex: TerrainClipPolygonIndex,
   pointScratch: ReturnType<typeof createTerrainClipPointQueryScratch>,
   bottomElevation: number,
+  modelHandles: {
+    center: Position;
+    innerRadiusKm: number;
+    clipTerrain: boolean;
+  }[] | null,
 ): void {
   const split = splitSurfaceTriangleByBoundary(
     triangle,
@@ -951,17 +1478,60 @@ function addTriangleWithClipBoundary(
     const vertexHeights = part.map((point) =>
       barycentricHeight(point, triangle, heights)
     ) as [number, number, number];
-    addFullTerrainTriangle(builder, part, vertexHeights);
+    if (modelHandles !== null) addOrnamentSurfaceTriangle(builder, part, vertexHeights);
+    else addFullTerrainTriangle(builder, part, vertexHeights);
   }
   for (const wall of split.walls) {
-    builder.addWall(
-      wall.start,
-      wall.end,
-      barycentricHeight(wall.start, triangle, heights),
-      barycentricHeight(wall.end, triangle, heights),
-      bottomElevation,
-      wall.boundarySegment,
-    );
+    const startHeight = barycentricHeight(wall.start, triangle, heights);
+    const endHeight = barycentricHeight(wall.end, triangle, heights);
+    if (modelHandles !== null && modelHandles.length > 0) {
+      const midpoint: Position = [
+        (wall.start[0] + wall.end[0]) / 2,
+        (wall.start[1] + wall.end[1]) / 2,
+      ];
+      const handleOpening = modelHandles.find((handle) =>
+        handle.clipTerrain && Math.hypot(
+          midpoint[0] - handle.center[0],
+          midpoint[1] - handle.center[1],
+        ) <= handle.innerRadiusKm + POINT_TOLERANCE_KM
+      );
+      if (handleOpening) {
+        if (startHeight > 0 || endHeight > 0) {
+          builder.addWall(
+            wall.start,
+            wall.end,
+            Math.max(0, startHeight),
+            Math.max(0, endHeight),
+            0,
+            wall.boundarySegment,
+          );
+        }
+        builder.addOrnamentBoundaryEdge(
+          wall.start,
+          wall.end,
+          startHeight,
+          endHeight,
+          wall.boundarySegment,
+        );
+      } else {
+        builder.addOrnamentBoundaryEdge(
+          wall.start,
+          wall.end,
+          startHeight,
+          endHeight,
+          wall.boundarySegment,
+        );
+      }
+    } else {
+      builder.addWall(
+        wall.start,
+        wall.end,
+        modelHandles === null ? startHeight : Math.max(0, startHeight),
+        modelHandles === null ? endHeight : Math.max(0, endHeight),
+        bottomElevation,
+        wall.boundarySegment,
+      );
+    }
   }
 }
 
@@ -969,7 +1539,11 @@ async function yieldToBrowser(): Promise<void> {
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 }
 
-async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuilder> {
+async function createTerrainMesh(
+  options: TerrainExportOptions,
+  bottomElevation = TERRAIN_SKIRT_BOTTOM_ELEVATION_METERS,
+  model?: TerrainModelOptions,
+): Promise<ObjBuilder> {
   const { metadata, center, californiaPolygons, region } = options;
   if (region.polygons.length === 0) throw new Error(`${region.name} does not intersect California.`);
   if (!Number.isFinite(options.resolutionMeters) || options.resolutionMeters <= 0) {
@@ -977,8 +1551,11 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
   }
   if (
     !Number.isFinite(options.californiaLatitudeSpanMeters) ||
-    options.californiaLatitudeSpanMeters < TERRAIN_EXPORT_SCALE_MIN_METERS ||
-    options.californiaLatitudeSpanMeters > TERRAIN_EXPORT_SCALE_MAX_METERS
+    options.californiaLatitudeSpanMeters <= 0 ||
+    (!model && (
+      options.californiaLatitudeSpanMeters < TERRAIN_EXPORT_SCALE_MIN_METERS ||
+      options.californiaLatitudeSpanMeters > TERRAIN_EXPORT_SCALE_MAX_METERS
+    ))
   ) {
     throw new Error("California export latitude span is outside the supported range.");
   }
@@ -991,6 +1568,29 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
     throw new Error("Terrain exaggeration must be greater than zero.");
   }
   const horizontalScale = options.californiaLatitudeSpanMeters / californiaProjectedSpanMeters;
+  const regionSpanKm = getTerrainRegionLatitudeSpanKm(region);
+  const localAccessories: LocalTerrainAccessory[] = model
+    ? model.accessories.map((accessory) => ({
+      ...accessory,
+      position: toLocal(accessory.position, center),
+      sizeKm: accessory.sizeMm * regionSpanKm / model.latitudeSpanMm,
+    }))
+    : [];
+  const modelFootprints = model
+    ? createTerrainModelFootprints(region, localAccessories)
+    : undefined;
+  const modelHandles = model
+    ? localAccessories.flatMap((accessory) => accessory.type === "handle"
+      ? [{
+        center: accessory.position,
+        innerRadiusKm: accessory.sizeKm * 0.4,
+        outerRadiusKm: accessory.sizeKm * 0.5,
+      clipTerrain: accessory.clipTerrain !== false,
+      }]
+      : [])
+    : null;
+  const terrainPolygons = modelFootprints?.surface ?? region.polygons;
+  const exportPolygons = modelFootprints?.footprint ?? region.polygons;
   const regionBounds = getPolygonsBounds(region.polygons);
   const zoom = getTerrainExportZoom(metadata, options.resolutionMeters);
   const tiles = getExportTiles(metadata, zoom, regionBounds, center);
@@ -998,11 +1598,14 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
     throw new Error(`No terrain tiles are available at ${options.resolutionMeters} m resolution.`);
   }
 
-  const clipIndex: TerrainClipPolygonIndex = createTerrainClipPolygonIndex(region.polygons);
+  const clipIndex: TerrainClipPolygonIndex = createTerrainClipPolygonIndex(terrainPolygons);
   const pointScratch = createTerrainClipPointQueryScratch(clipIndex);
   const builder = new ObjBuilder(horizontalScale, options.verticalExaggeration);
-  const bottomElevation = TERRAIN_SKIRT_BOTTOM_ELEVATION_METERS;
   const groundScale = getTerrainGroundScale(center);
+  const exportBottomElevation = model
+    ? -(model.baseThicknessMm / 1_000) /
+      (horizontalScale * options.verticalExaggeration)
+    : bottomElevation;
 
   for (let tileIndex = 0; tileIndex < tiles.length; tileIndex += 1) {
     const tile = tiles[tileIndex];
@@ -1022,7 +1625,7 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
       maxX: tile.left + tile.size,
       maxZ: tile.top + tile.size,
     };
-    const clipPolygons = getRegionTilePolygons(region.polygons, tileBounds);
+    const clipPolygons = getRegionTilePolygons(terrainPolygons, tileBounds);
     if (clipPolygons.length === 0) continue;
     const tileRectangle: Position[][][] = [[[
       [tile.left, tile.top],
@@ -1095,16 +1698,21 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
           topRightHeight,
         ];
         if (boundarySegments.length === 0) {
-          builder.addTopTriangle(firstTriangle.map((point, index) => [
-            point[0] * 1_000,
-            firstHeights[index] ?? 0,
-            point[1] * 1_000,
-          ]));
-          builder.addTopTriangle(secondTriangle.map((point, index) => [
-            point[0] * 1_000,
-            secondHeights[index] ?? 0,
-            point[1] * 1_000,
-          ]));
+          if (model) {
+            addOrnamentSurfaceTriangle(builder, firstTriangle, firstHeights);
+            addOrnamentSurfaceTriangle(builder, secondTriangle, secondHeights);
+          } else {
+            builder.addTopTriangle(firstTriangle.map((point, index) => [
+              point[0] * 1_000,
+              firstHeights[index] ?? 0,
+              point[1] * 1_000,
+            ]));
+            builder.addTopTriangle(secondTriangle.map((point, index) => [
+              point[0] * 1_000,
+              secondHeights[index] ?? 0,
+              point[1] * 1_000,
+            ]));
+          }
         } else {
           addTriangleWithClipBoundary(
             builder,
@@ -1113,7 +1721,8 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
             boundarySegments,
             clipIndex,
             pointScratch,
-            bottomElevation,
+            exportBottomElevation,
+            modelHandles,
           );
           addTriangleWithClipBoundary(
             builder,
@@ -1122,7 +1731,8 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
             boundarySegments,
             clipIndex,
             pointScratch,
-            bottomElevation,
+            exportBottomElevation,
+            modelHandles,
           );
         }
         if (builder.faceCount > MAX_TERRAIN_EXPORT_FACES) {
@@ -1135,12 +1745,42 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
     }
   }
 
+  if (modelFootprints && model) {
+    builder.addTopMesh(modelFootprints.baseOnly);
+    for (const handle of modelHandles ?? []) {
+      builder.addOrnamentWalls(
+        modelFootprints.footprint,
+        handle.center,
+        handle.innerRadiusKm,
+        handle.outerRadiusKm,
+        exportBottomElevation,
+        handle.clipTerrain,
+      );
+    }
+  }
   builder.addBottomMesh(
-    region.polygons,
-    bottomElevation,
+    exportPolygons,
+    exportBottomElevation,
     options.resolutionMeters,
     groundScale,
   );
+
+  for (const accessory of localAccessories) {
+    if (accessory.type === "handle") continue;
+    const outline = createTerrainAccessoryOutline(
+      accessory.type,
+      accessory.position,
+      accessory.sizeKm,
+      accessory.rotationDegrees,
+    );
+    const topElevation = ((accessory.thicknessMm ?? 1) / 1_000) /
+      (horizontalScale * options.verticalExaggeration);
+    const accessoryBottomElevation = model
+      ? -getTerrainAccessoryBaseOverlapMm(model.baseThicknessMm) / 1_000 /
+        (horizontalScale * options.verticalExaggeration)
+      : exportBottomElevation;
+    builder.addAccessoryPrism(outline, accessoryBottomElevation, topElevation);
+  }
 
   if (builder.faceCount === 0) {
     throw new Error(`${region.name} did not overlap any terrain tile data.`);
@@ -1301,7 +1941,14 @@ function createDracoGlb(
 ): Promise<ArrayBuffer> {
   const geometry = mesh.toGeometry();
   mesh.release();
+  return createDracoGlbFromGeometry(geometry, name, maxPrimitiveFaces);
+}
 
+function createDracoGlbFromGeometry(
+  geometry: BufferGeometry,
+  name: string,
+  maxPrimitiveFaces: number,
+): Promise<ArrayBuffer> {
   const encode = async (): Promise<ArrayBuffer> => {
     const positions = geometry.getAttribute("position");
     const indices = geometry.getIndex();
@@ -1422,8 +2069,76 @@ function createDracoGlb(
   return encode().finally(() => geometry.dispose());
 }
 
-export async function createTerrainObj(options: TerrainExportOptions): Promise<string> {
-  const mesh = await createTerrainMesh(options);
+function validateTerrainModelOptions(model: TerrainModelOptions): void {
+  if (!Number.isFinite(model.baseThicknessMm) ||
+      model.baseThicknessMm <= 0 ||
+      model.baseThicknessMm > 100) {
+    throw new Error("Model base thickness must be between 0 and 100 millimeters.");
+  }
+  if (!Number.isFinite(model.latitudeSpanMm) ||
+      model.latitudeSpanMm < 10 ||
+      model.latitudeSpanMm > 500) {
+    throw new Error("Model latitude span must be between 10 and 500 millimeters.");
+  }
+  for (const accessory of model.accessories) {
+    const [longitude, latitude] = accessory.position;
+    if (
+      !Number.isFinite(accessory.sizeMm) ||
+      accessory.sizeMm < 1 ||
+      accessory.sizeMm > 500 ||
+      !Number.isFinite(accessory.rotationDegrees) ||
+      !Number.isFinite(longitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      !Number.isFinite(latitude) ||
+      latitude < -85.05112878 ||
+      latitude > 85.05112878
+    ) {
+      throw new Error("Model accessory size, position, or rotation is invalid.");
+    }
+    if (
+      accessory.type !== "handle" &&
+      (accessory.thicknessMm === undefined ||
+        !Number.isFinite(accessory.thicknessMm) ||
+        accessory.thicknessMm < 1 ||
+        accessory.thicknessMm > 10)
+    ) {
+      throw new Error(
+        "Heart and star accessories need a thickness between 1 and 10 millimeters.",
+      );
+    }
+  }
+}
+
+function getTerrainModelExportOptions(
+  options: Omit<TerrainExportOptions, "californiaLatitudeSpanMeters">,
+  model: TerrainModelOptions,
+): TerrainExportOptions {
+  validateTerrainModelOptions(model);
+  const californiaBounds = getPolygonsBounds(options.californiaPolygons);
+  const californiaSpanMeters = (californiaBounds.maxZ - californiaBounds.minZ) * 1_000;
+  const regionSpanMeters = getTerrainRegionLatitudeSpanKm(options.region) * 1_000;
+  if (!Number.isFinite(californiaSpanMeters) || californiaSpanMeters <= 0) {
+    throw new Error("Could not calculate California's projected latitude span.");
+  }
+  if (!Number.isFinite(regionSpanMeters) || regionSpanMeters <= 0) {
+    throw new Error("Could not calculate the selected element's latitude span.");
+  }
+  return {
+    ...options,
+    californiaLatitudeSpanMeters:
+      (model.latitudeSpanMm / 1_000) * californiaSpanMeters / regionSpanMeters,
+  };
+}
+
+export async function createTerrainObj(
+  options: TerrainExportOptions,
+  model?: TerrainModelOptions,
+): Promise<string> {
+  const meshOptions = model
+    ? getTerrainModelExportOptions(options, model)
+    : options;
+  const mesh = await createTerrainMesh(meshOptions, undefined, model);
   options.onTriangleCount?.(mesh.faceCount);
   return mesh.toString(options.region.name);
 }
@@ -1438,6 +2153,42 @@ export async function createTerrainGlb(
   const mesh = await createTerrainMesh(options);
   options.onTriangleCount?.(mesh.faceCount);
   return createDracoGlb(mesh, options.region.name, maxPrimitiveFaces);
+}
+
+export async function createTerrainModelGlb(
+  options: Omit<TerrainExportOptions, "californiaLatitudeSpanMeters">,
+  model: TerrainModelOptions,
+  maxPrimitiveFaces = DRACO_CHUNK_FACE_LIMIT,
+): Promise<ArrayBuffer> {
+  if (!Number.isSafeInteger(maxPrimitiveFaces) || maxPrimitiveFaces < 1) {
+    throw new Error("GLB Draco primitive size must be a positive whole number of faces.");
+  }
+  validateTerrainModelOptions(model);
+  const mesh = await createTerrainMesh(
+    getTerrainModelExportOptions(options, model),
+    undefined,
+    model,
+  );
+  options.onTriangleCount?.(mesh.faceCount);
+  return createDracoGlb(mesh, options.region.name, maxPrimitiveFaces);
+}
+
+export async function createTerrainModelStl(
+  options: Omit<TerrainExportOptions, "californiaLatitudeSpanMeters">,
+  model: TerrainModelOptions,
+): Promise<ArrayBuffer> {
+  validateTerrainModelOptions(model);
+  const mesh = await createTerrainMesh(
+    getTerrainModelExportOptions(options, model),
+    undefined,
+    model,
+  );
+  try {
+    options.onTriangleCount?.(mesh.faceCount);
+    return mesh.toBinaryStl(options.region.name);
+  } finally {
+    mesh.release();
+  }
 }
 
 function crc32(bytes: Uint8Array): number {

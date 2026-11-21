@@ -13,8 +13,12 @@ import type { HighwayFeatureCollection } from "./features/highways";
 import type { RailwayFeatureCollection } from "./features/railways";
 import type { RiverFeatureCollection } from "./features/rivers";
 import type { MountainPeak } from "./features/mountains";
-import type { TerrainExportBoundingBox } from "./terrain/terrainExport";
+import type {
+  TerrainExportBoundingBox,
+  TerrainExportRegion,
+} from "./terrain/terrainExport";
 import type { TerrainRaycast } from "./terrain/terrainRaycast";
+import type { TerrainAccessory } from "./terrain/terrainOrnament";
 import type { EcoregionMapMetadata } from "./features/ecoregions";
 import type {
   Dataset,
@@ -74,6 +78,12 @@ type Props = {
   scalePixels: number;
   imageExportPreview: boolean;
   exportBounds: TerrainExportBoundingBox[];
+  modelPreview: {
+    region: TerrainExportRegion;
+    accessories: TerrainAccessory[];
+    baseThicknessMm: number;
+    latitudeSpanMm: number;
+  } | null;
 };
 
 export function MapDisplay(props: Props) {
@@ -121,7 +131,7 @@ export function MapDisplay(props: Props) {
   return (
     <section className="map-panel" aria-label="Interactive California terrain map">
       <div ref={props.stageRef}
-        className={`terrain-stage${props.isPlacingCustomPoint ? " is-placing-point" : ""}`}
+        className={`terrain-stage${props.isPlacingCustomPoint ? " is-placing-point" : ""}${props.modelPreview ? " is-ornament-preview" : ""}`}
         onPointerDown={props.onPointerDown}
         onContextMenu={(event) => event.preventDefault()} onWheel={props.onWheel}>
         {dataset ? (
@@ -145,6 +155,7 @@ export function MapDisplay(props: Props) {
               clipSelections={clipSelections}
               imageExportPreview={props.imageExportPreview}
               exportBounds={props.exportBounds}
+              modelPreview={props.modelPreview}
               settings={settings} regions={regions}
               selectedRegionId={selectedRegionId}
               regionOperationPreview={props.regionOperationPreview}
@@ -215,7 +226,7 @@ export function MapDisplay(props: Props) {
               <ol>
                 <li><p>Style the map in the Lighting section.</p></li>
                 <li><p>Embellish the map with custom, topological, or manmade features. Use "Cut" on regions to make it available for export.</p></li>
-                <li><p>Export the map as either GLB (3D model) or PNG (image).</p></li>
+                <li><p>Export 3D models as GLB or STL, or download a PNG image.</p></li>
               </ol>
               <section className="map-welcome-navigation">
                 <p>Pan with the left mouse button or one finger on a touchscreen. Rotate the view by dragging with the right mouse button or two fingers. Pinch to zoom.</p>

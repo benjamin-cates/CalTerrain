@@ -20,6 +20,9 @@ export type TerrainShaderUniforms = {
   uTerrainExaggeration: { value: number };
   uTerrainSkirtBottomMeters: { value: number };
 };
+export const TERRAIN_ORNAMENT_PREVIEW_COLOR = "#f5f5f2";
+export const TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS = 0.72;
+
 export type TerrainLineShaderUniforms = TerrainShaderUniforms & {
   uTerrainTileOrigin: { value: Vector2 };
 };
@@ -30,6 +33,8 @@ type TerrainClipShaderUniforms = TerrainShaderUniforms & {
   uTerrainPaletteStopCount: { value: number };
   uTerrainPaletteSolid: { value: number };
   uTerrainSolidColor: { value: Vector3 };
+  uTerrainPreviewSolidEnabled: { value: number };
+  uTerrainPreviewSolidColor: { value: Vector3 };
   uTerrainRegionMap: { value: Texture };
   uTerrainRegionMapEnabled: { value: number };
   uTerrainRegionMapBounds: { value: Vector4 };
@@ -81,14 +86,14 @@ export function createTerrainStandardMaterial(
   uniforms: TerrainClipShaderUniforms,
   side: Side = FrontSide,
   polygonOffset = false,
-  options: { forceOpaque?: boolean } = {},
+  options: { forceOpaque?: boolean; roughness?: number } = {},
 ): MeshStandardMaterial {
   const forceOpaque = options.forceOpaque ?? false;
   colorMap.colorSpace = SRGBColorSpace;
   const material = new MeshStandardMaterial({
     emissive: "#ffffff",
     map: colorMap,
-    roughness: 0.96,
+    roughness: options.roughness ?? 0.96,
     side,
     alphaTest: forceOpaque ? 0 : 0.01,
     transparent: !forceOpaque,
@@ -316,12 +321,16 @@ function applyTerrainClipMaskFragmentShader(
     `#include <common>
      uniform sampler2D uTerrainClipMask;
      uniform float uTerrainClipMaskEnabled;
+     uniform float uTerrainPreviewSolidEnabled;
+     uniform vec3 uTerrainPreviewSolidColor;
      ${useHeightPalette ? terrainHeightPaletteShader : ""}
      ${useRegionMap ? terrainRegionMapShader : ""}`,
   );
   Object.assign(shader.uniforms, {
     uTerrainClipMask: uniforms.uTerrainClipMask,
     uTerrainClipMaskEnabled: uniforms.uTerrainClipMaskEnabled,
+    uTerrainPreviewSolidEnabled: uniforms.uTerrainPreviewSolidEnabled,
+    uTerrainPreviewSolidColor: uniforms.uTerrainPreviewSolidColor,
     ...(useHeightPalette && {
       uTerrainPaletteStops: uniforms.uTerrainPaletteStops,
       uTerrainPaletteStopCount: uniforms.uTerrainPaletteStopCount,
@@ -352,7 +361,9 @@ export function applyTerrainDisplacementShader(
     "#include <map_fragment>",
     `#include <map_fragment>
      diffuseColor.rgb = vec3(1.0);
-     if (uTerrainRegionMapEnabled > 0.5) {
+    if (uTerrainPreviewSolidEnabled > 0.5) {
+      diffuseColor.rgb = uTerrainPreviewSolidColor;
+    } else if (uTerrainRegionMapEnabled > 0.5) {
        vec4 regionMapColor = texture2D(uTerrainRegionMap, vTerrainRegionMapUv);
        diffuseColor.rgb = mix(
          diffuseColor.rgb,
@@ -379,7 +390,11 @@ export function applyTerrainDisplacementShader(
     shader,
     "#include <emissivemap_fragment>",
     `#include <emissivemap_fragment>
-     totalEmissiveRadiance = terrainHeightPaletteEmissive(vTerrainHeightMeters);`,
+     if (uTerrainPreviewSolidEnabled > 0.5) {
+       totalEmissiveRadiance = vec3(0.0);
+     } else {
+       totalEmissiveRadiance = terrainHeightPaletteEmissive(vTerrainHeightMeters);
+     }`,
   );
 }
 

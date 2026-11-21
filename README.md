@@ -1,8 +1,8 @@
-<a href="https://calterrain.thebenjicat.dev"><img src="CalTerrainPromo.jpg" width="800" alt="CalTerrain — Study, Carve, and Export the Golden State — Roads and Highways, Shape Operations, Elevation Analysis, National Parks, Mountain Peaks, Custom Lighting, Export to GLB or PNG" /></a>
+<a href="https://calterrain.thebenjicat.dev"><img src="CalTerrainPromo.jpg" width="800" alt="CalTerrain — Study, Carve, and Export the Golden State — Roads and Highways, Shape Operations, Elevation Analysis, National Parks, Mountain Peaks, Custom Lighting, Export to GLB, STL, or PNG" /></a>
 
 # CalTerrain
 
-CalTerrain is an interactive 3D California terrain viewer. It streams USGS elevation data and California topographical and man-made features. Explore terrain, analyze features, create and edit shapes, and export clipped regions as PNG images or 3D models.
+CalTerrain is an interactive 3D California terrain viewer. It streams USGS elevation data and California topographical and man-made features. Explore terrain, analyze features, create and edit shapes, and export clipped regions as PNG images, 3D models, GeoJSON, or SVG outlines.
 
 [Open CalTerrain](https://calterrain.thebenjicat.dev)
 
@@ -16,7 +16,7 @@ CalTerrain is an interactive 3D California terrain viewer. It streams USGS eleva
   polylines. Intersect, union, and subtract areas to create custom shapes.
 - **Analyze and edit regions:** inspect area, perimeter, and line length; sample high and low terrain points; create elevation
   profiles of lines.
-- **Export terrain:** mark regions with **CUT** and download as GLB or PNG
+- **Export terrain:** mark regions with **CUT** and download as GLB or STL models, PNG images, or GeoJSON and SVG outlines. SVG outlines are 100 px high and preserve holes and disconnected pieces. 3D models can include a configurable base, a hanging loop, and raised accessories.
 
 ## Data sources
 

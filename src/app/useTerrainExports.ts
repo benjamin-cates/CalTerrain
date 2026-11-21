@@ -1,39 +1,34 @@
 import { useCallback, useMemo, useState } from "react";
-import {
-  clipFeatureExportRegionId,
-  createRegionBoundaryExport,
-} from "../regions/export";
+import { createRegionBoundaryExport } from "../regions/export";
 import type {
   BoundaryCollection,
-  ClipFeatureCategory,
   ClipFeatureSelections,
   Dataset,
   Region,
-  TopographicFeatureCategory,
-  TopographicFeatureOption,
   ViewSettings,
 } from "../types";
 import type { TerrainHeightPalette } from "../terrain/terrainHeightPalette";
 import {
-  combineTerrainExportRegions,
-  createStoreZip,
   createTerrainExportRegions,
-  createTerrainGlb,
   createTerrainImageCanvas,
+  createTerrainModelGlb,
+  createTerrainModelStl,
   getTerrainGroundScale,
   terrainExportFilename,
+  type TerrainModelFileFormat,
   type TerrainExportProgress,
+  type TerrainExportOptions,
   type TerrainExportRegion,
   type TerrainExportTriangleReport,
 } from "../terrain/terrainExport";
-
-type ExportMode = "region" | "zip" | "combined";
+import type { TerrainModelOptions } from "../terrain/terrainOrnament";
+import { createTerrainOutlineSvg } from "../terrain/terrainOutline";
+import { fromLocal } from "../geo";
 
 type UseTerrainExportsOptions = {
   dataset: Dataset | null;
   regions: Region[];
   clipSelections: ClipFeatureSelections;
-  topographicOptions: Record<TopographicFeatureCategory, TopographicFeatureOption[]>;
   nationalParkFeatures: BoundaryCollection | null;
   nationalForestFeatures: BoundaryCollection | null;
   ecoregionFeatures: BoundaryCollection | null;
@@ -65,7 +60,6 @@ export function useTerrainExports({
   dataset,
   regions,
   clipSelections,
-  topographicOptions,
   nationalParkFeatures,
   nationalForestFeatures,
   ecoregionFeatures,
@@ -78,37 +72,6 @@ export function useTerrainExports({
   const [terrainExportTriangleReport, setTerrainExportTriangleReport] =
     useState<TerrainExportTriangleReport | null>(null);
   const longitudeLatitudeGrid = dataset?.longitudeLatitudeGrid ?? null;
-
-  const clipExportRegions = useMemo(() => {
-    const items = regions
-      .filter((region) =>
-        region.type !== "county" &&
-        region.type !== "point" &&
-        region.type !== "polyline" &&
-        region.clip === true
-      )
-      .map((region) => ({ id: region.id, name: region.name }));
-    const categories: { id: ClipFeatureCategory; prefix: string }[] = [
-      { id: "landmasses", prefix: "Landmass" },
-      { id: "counties", prefix: "County" },
-      { id: "nationalParks", prefix: "National park" },
-      { id: "nationalForests", prefix: "National forest" },
-      { id: "longitudeLatitudeLines", prefix: "Grid cell" },
-      { id: "ecoregions", prefix: "Ecoregion" },
-    ];
-    for (const { id, prefix } of categories) {
-      for (const selectedId of clipSelections[id]) {
-        const option = topographicOptions[id].find((item) => item.id === selectedId);
-        if (option) {
-          items.push({
-            id: clipFeatureExportRegionId(id, selectedId),
-            name: `${prefix}: ${option.label}`,
-          });
-        }
-      }
-    }
-    return items;
-  }, [clipSelections, regions, topographicOptions]);
 
   const preparedTerrainExportData = useMemo(() => {
     if (!dataset) return { regions: [], californiaPolygons: [] };
@@ -138,160 +101,116 @@ export function useTerrainExports({
     regions,
   ]);
   const preparedTerrainExportRegions = preparedTerrainExportData.regions;
-  const combinedImageRegion = useMemo(
-    () => preparedTerrainExportRegions.length > 1
-      ? combineTerrainExportRegions(
-        preparedTerrainExportRegions,
-        preparedTerrainExportData.californiaPolygons,
-      )
-      : null,
-    [preparedTerrainExportData.californiaPolygons, preparedTerrainExportRegions],
-  );
-
-  const exportClipRegions = useCallback(() => {
-    if (!dataset) return;
-    const collection = createRegionBoundaryExport(
-      regions,
-      clipSelections,
-      dataset.metadata.center,
-      dataset.counties,
-      nationalParkFeatures,
-      nationalForestFeatures,
-      longitudeLatitudeGrid,
-      ecoregionFeatures,
-      dataset.state,
-    );
-    const blob = new Blob([JSON.stringify(collection, null, 2)], {
-      type: "application/geo+json",
-    });
-    downloadFile(blob, "california-region-boundaries.geojson");
-  }, [
-    clipSelections,
-    dataset,
-    ecoregionFeatures,
-    longitudeLatitudeGrid,
-    nationalForestFeatures,
-    nationalParkFeatures,
-    regions,
-  ]);
-
-  const exportTerrain = useCallback(async (
-    mode: ExportMode,
-    regionId: string | null,
+  const exportTerrainModel = useCallback(async (
+    format: TerrainModelFileFormat,
+    regionId: string,
     resolutionMeters: number,
-    californiaLatitudeSpanMeters: number,
+    model: TerrainModelOptions,
   ) => {
     if (!dataset || terrainExportBusy) return;
     setTerrainExportBusy(true);
     setTerrainExportError(null);
     setTerrainExportTriangleReport(null);
-    setTerrainExportStatus("Preparing clipped terrain…");
+    setTerrainExportStatus(`Preparing ${format.toUpperCase()} model…`);
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     try {
-      const boundaryCollection = createRegionBoundaryExport(
-        regions,
-        clipSelections,
-        dataset.metadata.center,
-        dataset.counties,
-        nationalParkFeatures,
-        nationalForestFeatures,
-        longitudeLatitudeGrid,
-        ecoregionFeatures,
-        dataset.state,
-      );
-      const { regions: exportRegions, californiaPolygons } = createTerrainExportRegions(
-        boundaryCollection,
-        dataset.state,
-        dataset.metadata.center,
-      );
-      if (exportRegions.length === 0) {
-        throw new Error("No selected regions intersect California.");
-      }
-      const reportProgress = ({ tileIndex, tileCount, regionName }: TerrainExportProgress) => {
-        setTerrainExportStatus(
-          `Exporting ${regionName} · tile ${tileIndex.toLocaleString("en-US")} of ${tileCount.toLocaleString("en-US")}`,
-        );
-      };
-      const triangleCounts: TerrainExportTriangleReport["pieces"] = [];
-      const createGlb = (region: (typeof exportRegions)[number]) => createTerrainGlb({
+      const region = preparedTerrainExportRegions.find((item) => item.id === regionId);
+      if (!region) throw new Error("The requested model region is no longer selected.");
+      const options: Omit<TerrainExportOptions, "californiaLatitudeSpanMeters"> = {
         metadata: dataset.metadata,
         center: dataset.metadata.center,
-        californiaPolygons,
+        californiaPolygons: preparedTerrainExportData.californiaPolygons,
         region,
         resolutionMeters,
-        californiaLatitudeSpanMeters,
         verticalExaggeration: settings.exaggeration,
-        onProgress: reportProgress,
+        onProgress: ({ tileIndex, tileCount, regionName }) => {
+          setTerrainExportStatus(
+            `Exporting ${regionName} · tile ${tileIndex.toLocaleString("en-US")} of ${tileCount.toLocaleString("en-US")}`,
+          );
+        },
         onTriangleCount: (count) =>
-          triangleCounts.push({ id: region.id, name: region.name, count }),
-      });
-
-      if (mode === "region") {
-        const region = regionId === null
-          ? undefined
-          : exportRegions.find((item) => item.id === regionId);
-        if (!region) throw new Error("The requested export region is no longer selected.");
-        setTerrainExportStatus(`Exporting ${region.name}…`);
-        const glb = await createGlb(region);
-        downloadFile(
-          new Blob([glb], { type: "model/gltf-binary" }),
-          terrainExportFilename(region.name),
-        );
-      } else if (mode === "combined") {
-        const combined = combineTerrainExportRegions(exportRegions, californiaPolygons);
-        const glb = await createGlb(combined);
-        downloadFile(
-          new Blob([glb], { type: "model/gltf-binary" }),
-          "california-combined-regions.glb",
-        );
-      } else {
-        const entries: { name: string; content: Uint8Array<ArrayBuffer> }[] = [];
-        const usedNames = new Set<string>();
-        for (let index = 0; index < exportRegions.length; index += 1) {
-          const region = exportRegions[index];
-          if (!region) continue;
-          const glb = new Uint8Array(await createGlb(region));
-          const filename = terrainExportFilename(region.name);
-          let uniqueFilename = filename;
-          let suffix = 2;
-          while (usedNames.has(uniqueFilename)) {
-            uniqueFilename = filename.replace(/\.glb$/, `-${suffix}.glb`);
-            suffix += 1;
-          }
-          usedNames.add(uniqueFilename);
-          entries.push({ name: uniqueFilename, content: glb });
-        }
-        setTerrainExportStatus("Packaging GLB files…");
-        const archive = createStoreZip(entries);
-        downloadFile(archive, "california-region-exports.zip");
-      }
-      setTerrainExportTriangleReport({
-        pieces: triangleCounts,
-        total: triangleCounts.reduce((total, piece) => total + piece.count, 0),
-      });
+          setTerrainExportTriangleReport({
+            pieces: [{ id: region.id, name: region.name, count }],
+            total: count,
+          }),
+      };
+      const modelData = format === "glb"
+        ? await createTerrainModelGlb(options, model)
+        : await createTerrainModelStl(options, model);
+      downloadFile(
+        new Blob([modelData], {
+          type: format === "glb" ? "model/gltf-binary" : "model/stl",
+        }),
+        terrainExportFilename(region.name).replace(/\.glb$/, `.${format}`),
+      );
     } catch (error) {
       setTerrainExportError(
-        error instanceof Error ? error.message : "Could not export the selected terrain.",
+        error instanceof Error
+          ? error.message
+          : `Could not export the ${format.toUpperCase()} model.`,
       );
     } finally {
       setTerrainExportBusy(false);
       setTerrainExportStatus(null);
     }
   }, [
-    clipSelections,
     dataset,
-    ecoregionFeatures,
-    longitudeLatitudeGrid,
-    nationalForestFeatures,
-    nationalParkFeatures,
-    regions,
+    preparedTerrainExportData.californiaPolygons,
+    preparedTerrainExportRegions,
     settings.exaggeration,
     terrainExportBusy,
   ]);
 
+  const exportOutline = useCallback((regionId: string) => {
+    if (!dataset) return;
+    const region = preparedTerrainExportRegions.find((item) => item.id === regionId);
+    if (!region) {
+      setTerrainExportError("The requested outline region is no longer selected.");
+      return;
+    }
+    setTerrainExportError(null);
+    const polygons = region.polygons.map((polygon) =>
+      polygon.map((ring) =>
+        ring.map((point) => fromLocal(point, dataset.metadata.center))
+      )
+    );
+    const geometry = polygons.length === 1
+      ? { type: "Polygon" as const, coordinates: polygons[0]! }
+      : { type: "MultiPolygon" as const, coordinates: polygons };
+    downloadFile(
+      new Blob([JSON.stringify({
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          properties: { id: region.id, name: region.name },
+          geometry,
+        }],
+      }, null, 2)], { type: "application/geo+json" }),
+      terrainExportFilename(region.name).replace(/\.glb$/, ".geojson"),
+    );
+  }, [dataset, preparedTerrainExportRegions]);
+
+  const exportOutlineSvg = useCallback((regionId: string) => {
+    const region = preparedTerrainExportRegions.find((item) => item.id === regionId);
+    if (!region) {
+      setTerrainExportError("The requested outline region is no longer selected.");
+      return;
+    }
+    setTerrainExportError(null);
+    try {
+      downloadFile(
+        new Blob([createTerrainOutlineSvg(region)], { type: "image/svg+xml" }),
+        terrainExportFilename(region.name).replace(/\.glb$/, ".svg"),
+      );
+    } catch (error) {
+      setTerrainExportError(
+        error instanceof Error ? error.message : "Could not export the SVG outline.",
+      );
+    }
+  }, [preparedTerrainExportRegions]);
+
   const exportImage = useCallback(async (
-    mode: ExportMode,
-    regionId: string | null,
+    regionId: string,
     resolutionMeters: number,
   ) => {
     if (!dataset || terrainExportBusy) return;
@@ -301,9 +220,8 @@ export function useTerrainExports({
     setTerrainExportStatus("Preparing terrain image…");
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     try {
-      if (preparedTerrainExportRegions.length === 0) {
-        throw new Error("No selected regions intersect California.");
-      }
+      const region = preparedTerrainExportRegions.find((item) => item.id === regionId);
+      if (!region) throw new Error("The requested image region is no longer selected.");
       const reportProgress = ({ tileIndex, tileCount, regionName }: TerrainExportProgress) => {
         setTerrainExportStatus(
           `Rendering ${regionName} · tile ${tileIndex.toLocaleString("en-US")} of ${tileCount.toLocaleString("en-US")}`,
@@ -317,43 +235,9 @@ export function useTerrainExports({
         palette: heightPalette,
         onProgress: reportProgress,
       });
-      if (mode === "combined") {
-        if (!combinedImageRegion) {
-          throw new Error("At least two cut regions are required for a combined image.");
-        }
-        const canvas = await createTerrainImageCanvas(optionsForRegion(combinedImageRegion));
-        const blob = await canvasToPng(canvas);
-        downloadFile(blob, "california-combined-regions.png");
-      } else if (mode === "region") {
-        const region = regionId === null
-          ? undefined
-          : preparedTerrainExportRegions.find((item) => item.id === regionId);
-        if (!region) throw new Error("The requested export region is no longer selected.");
-        const canvas = await createTerrainImageCanvas(optionsForRegion(region));
-        const blob = await canvasToPng(canvas);
-        downloadFile(blob, terrainExportFilename(region.name).replace(/\.glb$/, ".png"));
-      } else {
-        const entries: { name: string; content: Uint8Array<ArrayBuffer> }[] = [];
-        const usedNames = new Set<string>();
-        for (const region of preparedTerrainExportRegions) {
-          const canvas = await createTerrainImageCanvas(optionsForRegion(region));
-          const blob = await canvasToPng(canvas);
-          const filename = terrainExportFilename(region.name).replace(/\.glb$/, ".png");
-          let uniqueFilename = filename;
-          let suffix = 2;
-          while (usedNames.has(uniqueFilename)) {
-            uniqueFilename = filename.replace(/\.png$/, `-${suffix}.png`);
-            suffix += 1;
-          }
-          usedNames.add(uniqueFilename);
-          entries.push({
-            name: uniqueFilename,
-            content: new Uint8Array(await blob.arrayBuffer()),
-          });
-        }
-        setTerrainExportStatus("Packaging PNG files…");
-        downloadFile(createStoreZip(entries), "california-region-images.zip");
-      }
+      const canvas = await createTerrainImageCanvas(optionsForRegion(region));
+      const blob = await canvasToPng(canvas);
+      downloadFile(blob, terrainExportFilename(region.name).replace(/\.glb$/, ".png"));
     } catch (error) {
       setTerrainExportError(
         error instanceof Error ? error.message : "Could not export the selected terrain image.",
@@ -363,7 +247,6 @@ export function useTerrainExports({
       setTerrainExportStatus(null);
     }
   }, [
-    combinedImageRegion,
     dataset,
     heightPalette,
     preparedTerrainExportRegions,
@@ -371,11 +254,10 @@ export function useTerrainExports({
   ]);
 
   return {
-    clipExportRegions,
-    combinedImageRegion,
-    exportClipRegions,
     exportImage,
-    exportTerrain,
+    exportTerrainModel,
+    exportOutline,
+    exportOutlineSvg,
     preparedTerrainExportRegions,
     terrainExportBusy,
     terrainExportError,

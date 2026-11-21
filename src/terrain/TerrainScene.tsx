@@ -1,6 +1,14 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import { Vector3, type Camera, type Texture } from "three";
+import {
+  DoubleSide,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  SphereGeometry,
+  Vector3,
+  type Camera,
+  type Texture,
+} from "three";
 import { countyId, featureRings, toLocal } from "../geo";
 import { longitudeLatitudeCellId } from "../longitudeLatitudeGrid";
 import { TerrainOverlays, type TerrainDrapedLineLayer } from "../TerrainOverlays";
@@ -12,7 +20,18 @@ import {
 import type { MountainPeak } from "../features/mountains";
 import type { RailwayFeatureCollection } from "../features/railways";
 import type { RiverFeatureCollection } from "../features/rivers";
-import type { TerrainExportBoundingBox } from "./terrainExport";
+import type {
+  TerrainExportBoundingBox,
+  TerrainExportRegion,
+} from "./terrainExport";
+import {
+  createTerrainModelFootprints,
+  createTerrainModelPreviewGeometries,
+  getTerrainAccessoryTopY,
+  getTerrainRegionLatitudeSpanKm,
+  type LocalTerrainAccessory,
+  type TerrainAccessory,
+} from "./terrainOrnament";
 import type { TerrainRaycast } from "./terrainRaycast";
 import type { EcoregionMapMetadata } from "../features/ecoregions";
 import {
@@ -21,6 +40,10 @@ import {
   type RegionHandle,
 } from "../regions/geometry";
 import { TerrainTiles } from "./Terrain";
+import {
+  TERRAIN_ORNAMENT_PREVIEW_COLOR,
+  TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS,
+} from "./terrainShader";
 import {
   getStateBoundaryClipPolygons,
   intersectStateWithRegions,
@@ -183,6 +206,7 @@ export function TerrainScene({
   view,
   imageExportPreview,
   exportBounds,
+  modelPreview,
 }: {
   data: Dataset;
   highwayFeatures: HighwayFeatureCollection | null;
@@ -214,8 +238,19 @@ export function TerrainScene({
   view: ViewState;
   imageExportPreview: boolean;
   exportBounds: TerrainExportBoundingBox[];
+  modelPreview: {
+    region: TerrainExportRegion;
+    accessories: TerrainAccessory[];
+    baseThicknessMm: number;
+    latitudeSpanMm: number;
+  } | null;
 }) {
   const { invalidate } = useThree();
+  const modelRegion = modelPreview?.region ?? null;
+  const modelAccessoryOptions = modelPreview?.accessories;
+  const modelBaseThicknessMm = modelPreview?.baseThicknessMm ?? 0;
+  const modelLatitudeSpanMm = modelPreview?.latitudeSpanMm ?? 0;
+  const isModelPreview = modelRegion !== null;
   const previousTilesRef = useRef<Tile[]>([]);
   const candidateTiles = useMemo(
     () => selectTerrainTiles(view, data.metadata, previousTilesRef.current),
@@ -470,14 +505,89 @@ export function TerrainScene({
     () => getStateBoundaryClipPolygons(data.state, data.metadata.center),
     [data.metadata.center, data.state.features],
   );
+  const modelAccessories = useMemo<LocalTerrainAccessory[]>(
+    () => modelRegion && modelAccessoryOptions
+      ? modelAccessoryOptions.map((accessory) => ({
+        ...accessory,
+        position: toLocal(accessory.position, data.metadata.center),
+        sizeKm: accessory.sizeMm *
+          getTerrainRegionLatitudeSpanKm(modelRegion) / modelLatitudeSpanMm,
+      }))
+      : [],
+    [data.metadata.center, modelAccessoryOptions, modelLatitudeSpanMm, modelRegion],
+  );
+  const modelFootprints = useMemo(
+    () => modelRegion
+      ? createTerrainModelFootprints(modelRegion, modelAccessories)
+      : null,
+    [modelAccessories, modelRegion],
+  );
+  const modelPreviewGeometry = useMemo(() => {
+    if (!modelRegion || !modelFootprints) return null;
+    const regionLatitudeSpanKm = getTerrainRegionLatitudeSpanKm(modelRegion);
+    if (regionLatitudeSpanKm <= 0 || modelLatitudeSpanMm <= 0) return null;
+    return createTerrainModelPreviewGeometries(
+      modelRegion,
+      modelAccessories,
+      modelBaseThicknessMm,
+      modelLatitudeSpanMm,
+      modelFootprints,
+    );
+  }, [
+    modelAccessories,
+    modelBaseThicknessMm,
+    modelFootprints,
+    modelLatitudeSpanMm,
+    modelRegion,
+  ]);
+  const ornamentPreviewMaterial = useMemo(
+    () => new MeshStandardMaterial({
+      color: TERRAIN_ORNAMENT_PREVIEW_COLOR,
+      roughness: TERRAIN_ORNAMENT_PREVIEW_ROUGHNESS,
+      side: DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+    }),
+    [],
+  );
+  const accessoryPreviewMaterial = useMemo(
+    () => new MeshStandardMaterial({
+      color: "#ff8833",
+      emissive: "#6b2600",
+      emissiveIntensity: 0.2,
+      roughness: 0.58,
+      side: DoubleSide,
+    }),
+    [],
+  );
+  const ornamentMarkerMaterial = useMemo(
+    () => new MeshBasicMaterial({
+      color: "#f5c66f",
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+    }),
+    [],
+  );
+  const ornamentMarkerGeometry = useMemo(() => new SphereGeometry(1, 16, 12), []);
+  useEffect(() => () => {
+    modelPreviewGeometry?.base.dispose();
+    modelPreviewGeometry?.accessories.forEach(({ geometry }) => geometry.dispose());
+  }, [modelPreviewGeometry]);
+  useEffect(() => () => ornamentPreviewMaterial.dispose(), [ornamentPreviewMaterial]);
+  useEffect(() => () => accessoryPreviewMaterial.dispose(), [accessoryPreviewMaterial]);
+  useEffect(() => () => ornamentMarkerMaterial.dispose(), [ornamentMarkerMaterial]);
+  useEffect(() => () => ornamentMarkerGeometry.dispose(), [ornamentMarkerGeometry]);
   const terrainClipPolygons = useMemo(() => {
+    if (modelFootprints) return modelFootprints.surface;
     if (regionClipPolygons === null) return stateBorderPolygons;
     if (regionClipPolygons.length === 0 || stateBorderPolygons.length === 0) return [];
     return intersectStateWithRegions(stateBorderPolygons, regionClipPolygons);
   },
-    [regionClipPolygons, stateBorderPolygons],
+    [modelFootprints, regionClipPolygons, stateBorderPolygons],
   );
   const lakeMaskPolygons = useMemo(() => {
+    if (isModelPreview) return [];
     if (!lakes || selectedLakeIds.size === 0) return [];
     return lakes.features.flatMap((feature) => {
       if (!selectedLakeIds.has(String(feature.properties.GlobalID ?? "").trim())) return [];
@@ -486,7 +596,7 @@ export function TerrainScene({
       );
       return rings.length > 0 ? [rings] : [];
     });
-  }, [data.metadata.center, lakes, selectedLakeIds]);
+  }, [data.metadata.center, isModelPreview, lakes, selectedLakeIds]);
   const boundaryLines = useMemo<TerrainDrapedLineLayer[]>(() => [
     ...landmassBoundaryLines,
     ...countyBoundaryLines,
@@ -642,7 +752,7 @@ export function TerrainScene({
         color={settings.lightColor}
         intensity={1.1}
       />
-      <group visible={terrainVisible || imageExportPreview}>
+      <group visible={terrainVisible || imageExportPreview || isModelPreview}>
         <Suspense fallback={null}>
           <TerrainTiles
             center={data.metadata.center}
@@ -654,37 +764,81 @@ export function TerrainScene({
             regionMap={ecoregionMapMetadata ? settings.regionMap : "none"}
             regionMapMetadata={ecoregionMapMetadata}
             regionMapTexture={ecoregionMapTexture}
+            previewSolidColor={modelPreview
+              ? TERRAIN_ORNAMENT_PREVIEW_COLOR
+              : null}
             clipPolygons={terrainClipPolygons}
             lakeMaskPolygons={lakeMaskPolygons}
             tiles={deferredTiles}
           />
         </Suspense>
       </group>
-      <Suspense fallback={null}>
-        <TerrainOverlays
-          mapRegions={imageExportPreview ? [] : regions}
-          selectedRegionId={imageExportPreview ? null : selectedRegionId}
-          regionOperationPreview={imageExportPreview ? null : regionOperationPreview}
-          center={data.metadata.center}
-          countyBoundaries={counties}
-          drapedLineLayers={overlayBoundaryLines}
-          lakes={lakes}
-          selectedLakeIds={topographicSelections.lakes}
-          highwayRouteShields={imageExportPreview ? [] : routeShields}
-          mountainPeaks={imageExportPreview ? [] : selectedMountainPeaks}
-          showMountainPeaks={!imageExportPreview && selectedMountainPeaks.length > 0}
-          cameraTarget={view.target}
-          showHighways={!imageExportPreview && selectedHighwayNumbers.size > 0}
-          showInterstates={!imageExportPreview && selectedInterstateNumbers.size > 0}
-          cameraDistance={view.distance}
-          verticalExaggeration={settings.exaggeration}
-          measurementSystem={settings.measurementSystem}
-          terrainTiles={deferredTiles}
-          onRegionHandlesChange={onRegionHandlesChange}
-          onRegionPointElevationChange={onRegionPointElevationChange}
-          onTerrainRaycastReady={onTerrainRaycastReady}
-        />
-      </Suspense>
+      {!isModelPreview && (
+        <Suspense fallback={null}>
+          <TerrainOverlays
+            mapRegions={imageExportPreview ? [] : regions}
+            selectedRegionId={imageExportPreview ? null : selectedRegionId}
+            regionOperationPreview={imageExportPreview ? null : regionOperationPreview}
+            center={data.metadata.center}
+            countyBoundaries={counties}
+            drapedLineLayers={overlayBoundaryLines}
+            lakes={lakes}
+            selectedLakeIds={topographicSelections.lakes}
+            highwayRouteShields={imageExportPreview ? [] : routeShields}
+            mountainPeaks={imageExportPreview ? [] : selectedMountainPeaks}
+            showMountainPeaks={!imageExportPreview && selectedMountainPeaks.length > 0}
+            cameraTarget={view.target}
+            showHighways={!imageExportPreview && selectedHighwayNumbers.size > 0}
+            showInterstates={!imageExportPreview && selectedInterstateNumbers.size > 0}
+            cameraDistance={view.distance}
+            verticalExaggeration={settings.exaggeration}
+            measurementSystem={settings.measurementSystem}
+            terrainTiles={deferredTiles}
+            onRegionHandlesChange={onRegionHandlesChange}
+            onRegionPointElevationChange={onRegionPointElevationChange}
+            onTerrainRaycastReady={onTerrainRaycastReady}
+          />
+        </Suspense>
+      )}
+      {modelPreview && modelPreviewGeometry && (
+        <group>
+          <mesh
+            geometry={modelPreviewGeometry.base}
+            material={ornamentPreviewMaterial}
+            renderOrder={3}
+          />
+          {modelPreviewGeometry.accessories.map(({ id, geometry }) => (
+            <mesh
+              key={id}
+              geometry={geometry}
+              material={accessoryPreviewMaterial}
+              renderOrder={4}
+            />
+          ))}
+          {modelAccessories.map((accessory) => {
+            const markerRadius = accessory.type === "handle"
+              ? Math.max(0.15, accessory.sizeKm * 0.15)
+              : Math.max(0.08, accessory.sizeKm * 0.12);
+            const markerY = accessory.type === "handle"
+              ? 0.1
+              : getTerrainAccessoryTopY(
+                accessory,
+                getTerrainRegionLatitudeSpanKm(modelPreview.region),
+                modelPreview.latitudeSpanMm,
+              ) + markerRadius;
+            return (
+              <mesh
+                key={`${accessory.id}-drag-handle`}
+                geometry={ornamentMarkerGeometry}
+                material={ornamentMarkerMaterial}
+                position={[accessory.position[0], markerY, accessory.position[1]]}
+                scale={[markerRadius, markerRadius, markerRadius]}
+                renderOrder={10_000}
+              />
+            );
+          })}
+        </group>
+      )}
       <CameraRig onCameraReady={onCameraReady} onInvalidateReady={onInvalidateReady}
         viewRef={viewRef} centerTerrainElevationRef={centerTerrainElevationRef}
         topDown={imageExportPreview} />

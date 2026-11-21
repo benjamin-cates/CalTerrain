@@ -23,7 +23,6 @@ import {
 import { distanceToLineSegments, geometryContainsPosition } from "./regions/nearbyShapes";
 import { combineCustomRegions, type PolygonOperation } from "./regions/operations";
 import {
-  COMBINED_IMAGE_PREVIEW_ID,
   INITIAL_SETTINGS,
   INITIAL_CLIP_FEATURE_SELECTIONS,
   INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS,
@@ -62,11 +61,20 @@ import {
 } from "./touchGestures";
 import {
   TERRAIN_EXPORT_RESOLUTIONS,
+  type TerrainExportRegion,
 } from "./terrain/terrainExport";
 import type { TerrainRay, TerrainRaycast } from "./terrain/terrainRaycast";
 import type { TerrainHeightPalette } from "./terrain/terrainHeightPalette";
+import {
+  getDefaultTerrainAccessoryPosition,
+  getTerrainAccessoryTopY,
+  getTerrainRegionLatitudeSpanKm,
+  type TerrainAccessory,
+  type TerrainAccessoryType,
+} from "./terrain/terrainOrnament";
 import { formatElevation, formatLength } from "./units";
 import { TerrainImagePreview } from "./app/TerrainImagePreview";
+import { TerrainOutlinePreview } from "./app/TerrainOutlinePreview";
 import { useFeatureData } from "./app/useFeatureData";
 import { useTerrainExports } from "./app/useTerrainExports";
 import "./style/index.css";
@@ -123,9 +131,13 @@ export function App() {
     useState<TopographicFeatureSelections>(INITIAL_TOPOGRAPHIC_FEATURE_SELECTIONS);
   const [clipSelections, setClipSelections] =
     useState<ClipFeatureSelections>(INITIAL_CLIP_FEATURE_SELECTIONS);
-  const [exportFormat, setExportFormat] = useState<"image" | "model">("model");
+  const [exportFormat, setExportFormat] =
+    useState<"image" | "model" | "outline" | null>(null);
   const [resolutionIndex, setResolutionIndex] = useState(3);
-  const [selectedImageRegionId, setSelectedImageRegionId] = useState<string | null>(null);
+  const [modelLatitudeSpanMm, setModelLatitudeSpanMm] = useState(100);
+  const [selectedExportRegionId, setSelectedExportRegionId] = useState<string | null>(null);
+  const [accessories, setAccessories] = useState<TerrainAccessory[]>([]);
+  const [modelBaseThicknessMm, setModelBaseThicknessMm] = useState(5);
   const [heightPalette, setHeightPalette] = useState<TerrainHeightPalette>("grayscale");
   const featureData = useFeatureData({
     dataset,
@@ -154,11 +166,10 @@ export function App() {
   const longitudeLatitudeGrid = dataset?.longitudeLatitudeGrid ?? null;
   const [regions, setRegions] = useState<Region[]>([]);
   const {
-    clipExportRegions,
-    combinedImageRegion,
-    exportClipRegions,
     exportImage,
-    exportTerrain,
+    exportTerrainModel,
+    exportOutline,
+    exportOutlineSvg,
     preparedTerrainExportRegions,
     terrainExportBusy,
     terrainExportError,
@@ -169,13 +180,56 @@ export function App() {
     dataset,
     regions,
     clipSelections,
-    topographicOptions,
     nationalParkFeatures: nationalParkData.features,
     nationalForestFeatures: nationalForestData.features,
     ecoregionFeatures: ecoregionData.features,
     settings,
     heightPalette,
   });
+  const selectedExportRegion = preparedTerrainExportRegions.find(
+    (region) => region.id === selectedExportRegionId,
+  ) ?? null;
+  useEffect(() => {
+    if (selectedExportRegionId === (preparedTerrainExportRegions[0]?.id ?? null)) return;
+    if (
+      selectedExportRegionId &&
+      preparedTerrainExportRegions.some((region) => region.id === selectedExportRegionId)
+    ) return;
+    setSelectedExportRegionId(preparedTerrainExportRegions[0]?.id ?? null);
+    setAccessories([]);
+  }, [preparedTerrainExportRegions, selectedExportRegionId]);
+  const selectExportRegion = useCallback((regionId: string) => {
+    if (!preparedTerrainExportRegions.some((region) => region.id === regionId)) return;
+    setSelectedExportRegionId(regionId);
+    setAccessories([]);
+  }, [preparedTerrainExportRegions]);
+  const addAccessory = useCallback((type: TerrainAccessoryType) => {
+    if (!selectedExportRegion || !dataset) return;
+    const position = fromLocal(
+      getDefaultTerrainAccessoryPosition(selectedExportRegion, type),
+      dataset.metadata.center,
+    );
+    setAccessories((current) => [...current, {
+      id: crypto.randomUUID(),
+      type,
+      position,
+      sizeMm: 10,
+      rotationDegrees: 0,
+      ...(type !== "handle" ? { thicknessMm: 3 } : {}),
+    }]);
+  }, [dataset, selectedExportRegion]);
+  const updateAccessory = useCallback((
+    accessoryId: string,
+    changes: Partial<TerrainAccessory>,
+  ) => {
+    setAccessories((current) => current.map((accessory) => {
+      if (accessory.id !== accessoryId) return accessory;
+      return { ...accessory, ...changes };
+    }));
+  }, []);
+  const removeAccessory = useCallback((accessoryId: string) => {
+    setAccessories((current) => current.filter((accessory) => accessory.id !== accessoryId));
+  }, []);
   const displayRegions = useMemo(
     () => [
       ...regions,
@@ -248,6 +302,8 @@ export function App() {
   const regionsRef = useRef(regions);
   const regionHandlesRef = useRef<RegionHandle[]>([]);
   const gestureRef = useRef<Gesture | null>(null);
+  const accessoryDragRef = useRef<{ pointerId: number; accessoryId: string } | null>(null);
+  const modelFocusRegionRef = useRef<TerrainExportRegion | null>(null);
   const activeRegionDragIdRef = useRef<string | null>(null);
   const touchPointersRef = useRef(new Map<number, Position>());
   const pinchGestureRef = useRef<PinchGesture | null>(null);
@@ -296,14 +352,6 @@ export function App() {
     },
     [],
   );
-  useEffect(() => {
-    if (
-      selectedImageRegionId === COMBINED_IMAGE_PREVIEW_ID &&
-      combinedImageRegion
-    ) return;
-    if (preparedTerrainExportRegions.some((region) => region.id === selectedImageRegionId)) return;
-    setSelectedImageRegionId(preparedTerrainExportRegions[0]?.id ?? null);
-  }, [combinedImageRegion, preparedTerrainExportRegions, selectedImageRegionId]);
   const toggleTopographicFeature = useCallback((
     category: TopographicFeatureCategory,
     id: string,
@@ -442,7 +490,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (exportFormat === "image") return;
+    if (exportFormat !== "model") return;
     const stage = stageRef.current;
     if (!stage) return;
     const preventTrackpadPageZoom = (event: WheelEvent) => {
@@ -456,6 +504,21 @@ export function App() {
     const handlePointerMove = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
         touchPointersRef.current.set(event.pointerId, [event.clientX, event.clientY]);
+      }
+      if (accessoryDragRef.current?.pointerId === event.pointerId) {
+        const data = datasetRef.current;
+        const position = pointOnMap(event.clientX, event.clientY);
+        if (position && data) {
+          const accessoryId = accessoryDragRef.current.accessoryId;
+          const geographicPosition = fromLocal(position.position, data.metadata.center);
+          setAccessories((current) => current.map((accessory) =>
+            accessory.id === accessoryId
+              ? { ...accessory, position: geographicPosition }
+              : accessory
+          ));
+        }
+        didDragRef.current = true;
+        return;
       }
       const pinch = pinchGestureRef.current;
       if (pinch?.pointerIds.includes(event.pointerId)) {
@@ -595,6 +658,12 @@ export function App() {
     const endPointerGesture = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
         touchPointersRef.current.delete(event.pointerId);
+      }
+      if (accessoryDragRef.current?.pointerId === event.pointerId) {
+        accessoryDragRef.current = null;
+        didDragRef.current = true;
+        syncView(viewRef.current, true);
+        return;
       }
       const pinch = pinchGestureRef.current;
       if (pinch?.pointerIds.includes(event.pointerId)) {
@@ -867,6 +936,55 @@ export function App() {
       }
     }
     didDragRef.current = false;
+    if (
+      event.button === 0 &&
+      exportFormat === "model" &&
+      accessories.length > 0 &&
+      selectedExportRegion &&
+      dataset &&
+      cameraRef.current &&
+      stageRef.current
+    ) {
+      const camera = cameraRef.current;
+      const stage = stageRef.current;
+      const rect = stage.getBoundingClientRect();
+      camera.updateMatrixWorld();
+      const regionSpanKm = getTerrainRegionLatitudeSpanKm(selectedExportRegion);
+      const worldKmPerMm = regionSpanKm / modelLatitudeSpanMm;
+      const draggedAccessory = accessories.map((accessory) => {
+        const localPosition = toLocal(accessory.position, dataset.metadata.center);
+        const markerRadius = accessory.type === "handle"
+          ? Math.max(0.15, accessory.sizeMm * worldKmPerMm * 0.15)
+          : Math.max(0.08, accessory.sizeMm * worldKmPerMm * 0.12);
+        const markerY = accessory.type === "handle"
+          ? 0.1
+          : getTerrainAccessoryTopY(
+            accessory,
+            regionSpanKm,
+            modelLatitudeSpanMm,
+          ) + markerRadius;
+        const projected = new Vector3(localPosition[0], markerY, localPosition[1]).project(camera);
+        return {
+          accessory,
+          visible: projected.z >= -1 && projected.z <= 1,
+          distance: Math.hypot(
+            rect.left + (projected.x + 1) * rect.width / 2 - event.clientX,
+            rect.top + (1 - projected.y) * rect.height / 2 - event.clientY,
+          ),
+        };
+      })
+        .filter((item) => item.visible && item.distance <= 22)
+        .sort((first, second) => first.distance - second.distance)[0]?.accessory;
+      if (draggedAccessory) {
+        accessoryDragRef.current = {
+          pointerId: event.pointerId,
+          accessoryId: draggedAccessory.id,
+        };
+        didDragRef.current = true;
+        event.preventDefault();
+        return;
+      }
+    }
     let handle: RegionHandle | undefined;
     const region = regions.find((item) => item.id === selectedRegionId);
     const camera = cameraRef.current;
@@ -1185,6 +1303,19 @@ export function App() {
     };
     focusAnimationRef.current = window.requestAnimationFrame(animate);
   }, [canvasAspect, dataset, syncView]);
+  useEffect(() => {
+    if (exportFormat !== "model" || !selectedExportRegion || !dataset) {
+      modelFocusRegionRef.current = null;
+      return;
+    }
+    if (modelFocusRegionRef.current === selectedExportRegion) return;
+    modelFocusRegionRef.current = selectedExportRegion;
+    focusPositions(
+      selectedExportRegion.polygons.flat(2).map((position) =>
+        fromLocal(position, dataset.metadata.center)
+      ),
+    );
+  }, [dataset, exportFormat, focusPositions, selectedExportRegion]);
   const addCurrentLocationPoint = useCallback((position: Position) => {
     const region: Region = {
       id: crypto.randomUUID(),
@@ -1351,21 +1482,6 @@ export function App() {
     ])
     : "—";
   const exportResolution = TERRAIN_EXPORT_RESOLUTIONS[resolutionIndex] ?? TERRAIN_EXPORT_RESOLUTIONS[1];
-  const selectedImageRegion = selectedImageRegionId === COMBINED_IMAGE_PREVIEW_ID
-    ? combinedImageRegion
-    : preparedTerrainExportRegions.find((region) => region.id === selectedImageRegionId) ?? null;
-  const selectedImageRegionGeometry = useMemo(
-    () => JSON.stringify(selectedImageRegion?.polygons ?? null),
-    [selectedImageRegion?.polygons],
-  );
-  const stableImagePreviewRegion = useMemo(
-    () => selectedImageRegion,
-    [
-      selectedImageRegion?.id,
-      selectedImageRegion?.name,
-      selectedImageRegionGeometry,
-    ],
-  );
   const horizontalViewKm = 2 * view.distance * Math.tan((40 * Math.PI) / 360) * canvasAspect;
   const scaleKm = Math.max(1, Math.pow(10, Math.floor(Math.log10(horizontalViewKm / 4))));
   return (
@@ -1408,29 +1524,32 @@ export function App() {
         <Sidebar settings={settings} onSettingsChange={setSettings}
           regions={displayRegions} center={dataset?.metadata.center ?? null}
           selectedRegionId={selectedRegionId}
-          clipExportRegions={clipExportRegions} canExportClipRegions={dataset !== null}
-          onExportClipRegions={exportClipRegions}
+          canExportClipRegions={dataset !== null}
           terrainExportBusy={terrainExportBusy}
           terrainExportStatus={terrainExportStatus}
           terrainExportError={terrainExportError}
           terrainExportRegions={preparedTerrainExportRegions}
           terrainExportGroundScale={terrainExportGroundScale}
           terrainExportTriangleReport={terrainExportTriangleReport}
-          onExportTerrainRegion={(id, resolution, latitudeSpan) =>
-            void exportTerrain("region", id, resolution, latitudeSpan)}
-          onExportTerrainZip={(resolution, latitudeSpan) =>
-            void exportTerrain("zip", null, resolution, latitudeSpan)}
-          onExportTerrainCombined={(resolution, latitudeSpan) =>
-            void exportTerrain("combined", null, resolution, latitudeSpan)}
-          onExportImageRegion={(id, resolution) => void exportImage("region", id, resolution)}
-          onExportImageCombined={(resolution) => void exportImage("combined", null, resolution)}
-          onExportImageZip={(resolution) => void exportImage("zip", null, resolution)}
+          onExportModel={(format, regionId, resolution, model) =>
+            void exportTerrainModel(format, regionId, resolution, model)}
+          onExportImage={(id, resolution) => void exportImage(id, resolution)}
+          onExportOutline={exportOutline}
+          onExportOutlineSvg={exportOutlineSvg}
           exportFormat={exportFormat}
           onSetExportFormat={setExportFormat}
           resolutionIndex={resolutionIndex}
           onSetResolutionIndex={setResolutionIndex}
-          selectedImageRegionId={selectedImageRegionId}
-          onSelectImageRegion={setSelectedImageRegionId}
+          latitudeSpanMm={modelLatitudeSpanMm}
+          onSetLatitudeSpanMm={setModelLatitudeSpanMm}
+          selectedExportRegionId={selectedExportRegionId}
+          onSelectExportRegion={selectExportRegion}
+          baseThicknessMm={modelBaseThicknessMm}
+          onSetBaseThicknessMm={setModelBaseThicknessMm}
+          accessories={accessories}
+          onAddAccessory={addAccessory}
+          onUpdateAccessory={updateAccessory}
+          onRemoveAccessory={removeAccessory}
           heightPalette={heightPalette}
           onSetHeightPalette={setHeightPalette}
           topographicOptions={topographicOptions}
@@ -1471,8 +1590,10 @@ export function App() {
         />
         {exportFormat === "image" && dataset ? (
           <TerrainImagePreview metadata={dataset.metadata} center={dataset.metadata.center}
-            region={stableImagePreviewRegion} resolutionMeters={exportResolution} palette={heightPalette}
+            region={selectedExportRegion} resolutionMeters={exportResolution} palette={heightPalette}
             measurementSystem={settings.measurementSystem} />
+        ) : exportFormat === "outline" ? (
+          <TerrainOutlinePreview region={selectedExportRegion} />
         ) : (
           <MapDisplay dataset={dataset} dataError={dataError} terrainVisible={terrainVisible}
             welcomeOpen={welcomeOpen} onDismissWelcome={dismissWelcome}
@@ -1492,6 +1613,14 @@ export function App() {
             clipSelections={clipSelections}
             imageExportPreview={false}
             exportBounds={[]}
+            modelPreview={exportFormat === "model" && selectedExportRegion
+              ? {
+                region: selectedExportRegion,
+                accessories,
+                baseThicknessMm: modelBaseThicknessMm,
+                latitudeSpanMm: modelLatitudeSpanMm,
+              }
+              : null}
             onToggleTerrain={() => setTerrainVisible((visible) => !visible)}
             stageRef={stageRef} viewRef={viewRef}
             view={view} settings={settings} regions={displayRegions} selectedRegionId={selectedRegionId}
