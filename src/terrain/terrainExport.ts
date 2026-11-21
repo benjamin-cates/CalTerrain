@@ -25,6 +25,7 @@ import {
   getStateBoundaryClipPolygons,
   intersectStateWithRegions,
 } from "./terrainClip";
+import { splitSurfaceTriangleByBoundary } from "./terrainExportSurface";
 import {
   createTerrainClipPointQueryScratch,
   createTerrainClipPolygonIndex,
@@ -96,26 +97,6 @@ type ExportTile = {
 type ObjVertex = { x: number; y: number; z: number };
 
 export type TerrainZipEntry = { name: string; content: string | Uint8Array<ArrayBuffer> };
-
-type ClipTriangle = {
-  triangle: [Position, Position, Position];
-  minX: number;
-  minZ: number;
-  maxX: number;
-  maxZ: number;
-};
-
-type ClipTriangleNode = {
-  minX: number;
-  minZ: number;
-  maxX: number;
-  maxZ: number;
-  left?: ClipTriangleNode;
-  right?: ClipTriangleNode;
-  triangles?: ClipTriangle[];
-};
-
-type ClipTriangleIndex = { root: ClipTriangleNode | null };
 
 const TERRAIN_TILE_PIXELS = 256;
 const DEFAULT_TILE_SEGMENTS = 128;
@@ -746,6 +727,7 @@ class ObjBuilder {
           const edgeZ = end[1] - start[1];
           const lengthSquared = edgeX * edgeX + edgeZ * edgeZ;
           if (lengthSquared === 0) continue;
+          const amountTolerance = POINT_TOLERANCE_KM / Math.sqrt(lengthSquared);
           const splitPoints = [...boundaryPoints.values()]
             .map((point) => ({
               point,
@@ -753,7 +735,12 @@ class ObjBuilder {
                 (point[1] - start[1]) * edgeZ) / lengthSquared,
             }))
             .filter(({ point, amount }) => {
-              if (amount <= POINT_TOLERANCE_KM || amount >= 1 - POINT_TOLERANCE_KM) {
+              if (
+                positionKey(point) === positionKey(start) ||
+                positionKey(point) === positionKey(end) ||
+                amount < -amountTolerance ||
+                amount > 1 + amountTolerance
+              ) {
                 return false;
               }
               const projected: Position = [
@@ -909,210 +896,12 @@ function barycentricHeight(
   return first * heights[0] + second * heights[1] + (1 - first - second) * heights[2];
 }
 
-function pointOnSegment(point: Position, segment: TerrainClipSegment): boolean {
-  const dx = segment.end[0] - segment.start[0];
-  const dz = segment.end[1] - segment.start[1];
-  const lengthSquared = dx * dx + dz * dz;
-  if (lengthSquared === 0) return false;
-  const projection = ((point[0] - segment.start[0]) * dx +
-    (point[1] - segment.start[1]) * dz) / lengthSquared;
-  if (projection < -POINT_TOLERANCE_KM || projection > 1 + POINT_TOLERANCE_KM) return false;
-  const distance = Math.abs(
-    dx * (segment.start[1] - point[1]) - (segment.start[0] - point[0]) * dz,
-  ) / Math.sqrt(lengthSquared);
-  return distance <= POINT_TOLERANCE_KM;
-}
-
-function segmentCrossesTriangleInterior(
-  segment: TerrainClipSegment,
-  triangle: [Position, Position, Position],
-): boolean {
-  const [start, end] = [segment.start, segment.end];
-  const signedArea = (triangle[1][0] - triangle[0][0]) *
-      (triangle[2][1] - triangle[0][1]) -
-    (triangle[1][1] - triangle[0][1]) * (triangle[2][0] - triangle[0][0]);
-  const orientation = signedArea >= 0 ? 1 : -1;
-  let minimum = 0;
-  let maximum = 1;
-  for (let edgeIndex = 0; edgeIndex < 3; edgeIndex += 1) {
-    const edgeStart = triangle[edgeIndex];
-    const edgeEnd = triangle[(edgeIndex + 1) % 3];
-    if (!edgeStart || !edgeEnd) continue;
-    const edgeX = edgeEnd[0] - edgeStart[0];
-    const edgeZ = edgeEnd[1] - edgeStart[1];
-    const signedDistance = (point: Position) => orientation * (
-      edgeX * (point[1] - edgeStart[1]) -
-      edgeZ * (point[0] - edgeStart[0])
-    );
-    const startDistance = signedDistance(start);
-    const endDistance = signedDistance(end);
-    const delta = endDistance - startDistance;
-    if (Math.abs(delta) <= Number.EPSILON) {
-      if (startDistance < -POINT_TOLERANCE_KM) return false;
-      continue;
-    }
-    const ratio = (-POINT_TOLERANCE_KM - startDistance) / delta;
-    if (delta > 0) minimum = Math.max(minimum, ratio);
-    else maximum = Math.min(maximum, ratio);
-    if (minimum > maximum) return false;
-  }
-  if (maximum - minimum <= Number.EPSILON) return false;
-  const midpointRatio = (minimum + maximum) / 2;
-  const midpoint: Position = [
-    start[0] + (end[0] - start[0]) * midpointRatio,
-    start[1] + (end[1] - start[1]) * midpointRatio,
-  ];
-  for (let edgeIndex = 0; edgeIndex < 3; edgeIndex += 1) {
-    const edgeStart = triangle[edgeIndex];
-    const edgeEnd = triangle[(edgeIndex + 1) % 3];
-    if (!edgeStart || !edgeEnd) continue;
-    const edgeX = edgeEnd[0] - edgeStart[0];
-    const edgeZ = edgeEnd[1] - edgeStart[1];
-    const cross = orientation * (
-      edgeX * (midpoint[1] - edgeStart[1]) -
-      edgeZ * (midpoint[0] - edgeStart[0])
-    );
-    if (cross <= POINT_TOLERANCE_KM) return false;
-  }
-  return true;
-}
-
-function getCollinearSegmentOverlap(
-  start: Position,
-  end: Position,
-  segment: TerrainClipSegment,
-): [Position, Position] | null {
-  const edgeX = end[0] - start[0];
-  const edgeZ = end[1] - start[1];
-  const lengthSquared = edgeX * edgeX + edgeZ * edgeZ;
-  if (lengthSquared === 0) return null;
-  const distanceToLine = (point: Position) =>
-    Math.abs(edgeX * (point[1] - start[1]) - edgeZ * (point[0] - start[0])) /
-    Math.sqrt(lengthSquared);
-  if (
-    distanceToLine(segment.start) > POINT_TOLERANCE_KM ||
-    distanceToLine(segment.end) > POINT_TOLERANCE_KM
-  ) return null;
-  const project = (point: Position) =>
-    ((point[0] - start[0]) * edgeX + (point[1] - start[1]) * edgeZ) / lengthSquared;
-  const first = project(segment.start);
-  const second = project(segment.end);
-  const overlapStart = Math.max(0, Math.min(first, second));
-  const overlapEnd = Math.min(1, Math.max(first, second));
-  if (overlapEnd - overlapStart <= POINT_TOLERANCE_KM) return null;
-  return [
-    [start[0] + edgeX * overlapStart, start[1] + edgeZ * overlapStart],
-    [start[0] + edgeX * overlapEnd, start[1] + edgeZ * overlapEnd],
-  ];
-}
-
 function ringPoints(ring: Position[]): Vector2[] {
   const points = ring.slice();
   const first = points[0];
   const last = points[points.length - 1];
   if (first && last && first[0] === last[0] && first[1] === last[1]) points.pop();
   return points.map(([x, z]) => new Vector2(x, z));
-}
-
-function buildClipTriangleTree(triangles: ClipTriangle[]): ClipTriangleNode | null {
-  if (triangles.length === 0) return null;
-  const bounds = triangles.reduce((result, item) => ({
-    minX: Math.min(result.minX, item.minX),
-    minZ: Math.min(result.minZ, item.minZ),
-    maxX: Math.max(result.maxX, item.maxX),
-    maxZ: Math.max(result.maxZ, item.maxZ),
-  }), { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity });
-  if (triangles.length <= 8) return { ...bounds, triangles };
-  const splitOnX = bounds.maxX - bounds.minX >= bounds.maxZ - bounds.minZ;
-  triangles.sort((a, b) => splitOnX
-    ? (a.minX + a.maxX) - (b.minX + b.maxX)
-    : (a.minZ + a.maxZ) - (b.minZ + b.maxZ));
-  const middle = Math.floor(triangles.length / 2);
-  return {
-    ...bounds,
-    left: buildClipTriangleTree(triangles.slice(0, middle)) ?? undefined,
-    right: buildClipTriangleTree(triangles.slice(middle)) ?? undefined,
-  };
-}
-
-function createClipTriangleIndex(polygons: Position[][][]): ClipTriangleIndex {
-  const triangles: ClipTriangle[] = [];
-  for (const polygon of polygons) {
-    const outer = polygon[0];
-    if (!outer || outer.length < 4) continue;
-    const contour = ringPoints(outer);
-    const holes = polygon.slice(1).map(ringPoints);
-    const faces = ShapeUtils.triangulateShape(contour, holes);
-    const points = [...contour, ...holes.flat()];
-    for (const face of faces) {
-      const vertices = face.map((index) => points[index]) as [Vector2, Vector2, Vector2];
-      const first = vertices[0];
-      const second = vertices[1];
-      const third = vertices[2];
-      if (!first || !second || !third) continue;
-      const triangle: [Position, Position, Position] = [
-        [first.x, first.y],
-        [second.x, second.y],
-        [third.x, third.y],
-      ];
-      const signedArea = (second.x - first.x) * (third.y - first.y) -
-        (second.y - first.y) * (third.x - first.x);
-      if (Math.abs(signedArea) <= Number.EPSILON) continue;
-      triangles.push({
-        triangle,
-        minX: Math.min(first.x, second.x, third.x),
-        minZ: Math.min(first.y, second.y, third.y),
-        maxX: Math.max(first.x, second.x, third.x),
-        maxZ: Math.max(first.y, second.y, third.y),
-      });
-    }
-  }
-  if (triangles.length === 0) {
-    throw new Error("Could not triangulate the clipped region for terrain export.");
-  }
-  return { root: buildClipTriangleTree(triangles) };
-}
-
-function queryClipTriangleTree(
-  node: ClipTriangleNode | null,
-  bounds: Pick<ClipTriangle, "minX" | "minZ" | "maxX" | "maxZ">,
-  results: ClipTriangle[],
-): void {
-  if (
-    !node ||
-    node.minX > bounds.maxX ||
-    node.maxX < bounds.minX ||
-    node.minZ > bounds.maxZ ||
-    node.maxZ < bounds.minZ
-  ) return;
-  if (node.triangles) {
-    for (const triangle of node.triangles) {
-      if (
-        triangle.minX <= bounds.maxX &&
-        triangle.maxX >= bounds.minX &&
-        triangle.minZ <= bounds.maxZ &&
-        triangle.maxZ >= bounds.minZ
-      ) results.push(triangle);
-    }
-    return;
-  }
-  queryClipTriangleTree(node.left ?? null, bounds, results);
-  queryClipTriangleTree(node.right ?? null, bounds, results);
-}
-
-function getClipTrianglesForTerrainTriangle(
-  index: ClipTriangleIndex,
-  triangle: [Position, Position, Position],
-  results: ClipTriangle[],
-): ClipTriangle[] {
-  results.length = 0;
-  queryClipTriangleTree(index.root, {
-    minX: Math.min(triangle[0][0], triangle[1][0], triangle[2][0]),
-    minZ: Math.min(triangle[0][1], triangle[1][1], triangle[2][1]),
-    maxX: Math.max(triangle[0][0], triangle[1][0], triangle[2][0]),
-    maxZ: Math.max(triangle[0][1], triangle[1][1], triangle[2][1]),
-  }, results);
-  return results;
 }
 
 function signedArea2D(points: Position[]): number {
@@ -1124,57 +913,6 @@ function signedArea2D(points: Position[]): number {
     area += current[0] * next[1] - next[0] * current[1];
   }
   return area;
-}
-
-function clipConvexPolygon(
-  subject: Position[],
-  clip: [Position, Position, Position],
-): Position[] {
-  const orientation = signedArea2D(clip) >= 0 ? 1 : -1;
-  let output = subject.slice();
-  for (let edgeIndex = 0; edgeIndex < 3 && output.length > 0; edgeIndex += 1) {
-    const edgeStart = clip[edgeIndex];
-    const edgeEnd = clip[(edgeIndex + 1) % 3];
-    if (!edgeStart || !edgeEnd) continue;
-    const edgeX = edgeEnd[0] - edgeStart[0];
-    const edgeZ = edgeEnd[1] - edgeStart[1];
-    const signedDistance = (point: Position) => orientation * (
-      edgeX * (point[1] - edgeStart[1]) -
-      edgeZ * (point[0] - edgeStart[0])
-    );
-    const input = output;
-    output = [];
-    let previous = input[input.length - 1];
-    if (!previous) continue;
-    let previousDistance = signedDistance(previous);
-    for (const current of input) {
-      const currentDistance = signedDistance(current);
-      const previousInside = previousDistance >= -POINT_TOLERANCE_KM;
-      const currentInside = currentDistance >= -POINT_TOLERANCE_KM;
-      if (previousInside !== currentInside) {
-        const denominator = previousDistance - currentDistance;
-        if (denominator !== 0) {
-          const ratio = previousDistance / denominator;
-          output.push([
-            previous[0] + (current[0] - previous[0]) * ratio,
-            previous[1] + (current[1] - previous[1]) * ratio,
-          ]);
-        }
-      }
-      if (currentInside) output.push(current);
-      previous = current;
-      previousDistance = currentDistance;
-    }
-  }
-
-  const deduplicated = output.filter((point, index) => {
-    const previous = output[(index + output.length - 1) % output.length];
-    return !previous ||
-      Math.hypot(point[0] - previous[0], point[1] - previous[1]) > POINT_TOLERANCE_KM;
-  });
-  return deduplicated.length >= 3 && Math.abs(signedArea2D(deduplicated)) > 1e-12
-    ? deduplicated
-    : [];
 }
 
 function addFullTerrainTriangle(
@@ -1198,82 +936,32 @@ function addTriangleWithClipBoundary(
   boundarySegments: TerrainClipSegment[],
   clipIndex: TerrainClipPolygonIndex,
   pointScratch: ReturnType<typeof createTerrainClipPointQueryScratch>,
-  clipTriangleIndex: ClipTriangleIndex,
-  clipTriangleScratch: ClipTriangle[],
   bottomElevation: number,
 ): void {
-  if (boundarySegments.some((segment) => segmentCrossesTriangleInterior(segment, triangle))) {
-    const candidates = getClipTrianglesForTerrainTriangle(
-      clipTriangleIndex,
-      triangle,
-      clipTriangleScratch,
+  const split = splitSurfaceTriangleByBoundary(
+    triangle,
+    boundarySegments,
+    (point) => getTerrainClipPolygonsContainingPoint(
+      clipIndex,
+      point,
+      pointScratch,
+    ).length > 0,
+  );
+  for (const part of split.triangles) {
+    const vertexHeights = part.map((point) =>
+      barycentricHeight(point, triangle, heights)
+    ) as [number, number, number];
+    addFullTerrainTriangle(builder, part, vertexHeights);
+  }
+  for (const wall of split.walls) {
+    builder.addWall(
+      wall.start,
+      wall.end,
+      barycentricHeight(wall.start, triangle, heights),
+      barycentricHeight(wall.end, triangle, heights),
+      bottomElevation,
+      wall.boundarySegment,
     );
-    for (const candidate of candidates) {
-      const points = clipConvexPolygon(triangle, candidate.triangle);
-      if (points.length < 3) continue;
-      for (let index = 1; index < points.length - 1; index += 1) {
-        const first = points[0];
-        const second = points[index];
-        const third = points[index + 1];
-        if (!first || !second || !third) continue;
-        const vertices: [Position, Position, Position] = [first, second, third];
-        const vertexHeights = vertices.map((point) =>
-          barycentricHeight(point, triangle, heights)
-        ) as [number, number, number];
-        builder.addTopTriangle(vertices.map((point, vertexIndex) => [
-          point[0] * 1_000,
-          vertexHeights[vertexIndex] ?? 0,
-          point[1] * 1_000,
-        ]));
-      }
-      for (let index = 0; index < points.length; index += 1) {
-        const start = points[index];
-        const end = points[(index + 1) % points.length];
-        if (!start || !end || start[0] === end[0] && start[1] === end[1]) continue;
-        const midpoint: Position = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
-        const boundarySegment = boundarySegments.find((segment) =>
-          pointOnSegment(start, segment) &&
-          pointOnSegment(end, segment) &&
-          pointOnSegment(midpoint, segment)
-        );
-        if (!boundarySegment) continue;
-        builder.addWall(
-          start,
-          end,
-          barycentricHeight(start, triangle, heights),
-          barycentricHeight(end, triangle, heights),
-          bottomElevation,
-          boundarySegment,
-        );
-      }
-    }
-    return;
-  }
-
-  const centroid: Position = [
-    (triangle[0][0] + triangle[1][0] + triangle[2][0]) / 3,
-    (triangle[0][1] + triangle[1][1] + triangle[2][1]) / 3,
-  ];
-  if (getTerrainClipPolygonsContainingPoint(clipIndex, centroid, pointScratch).length === 0) {
-    return;
-  }
-  addFullTerrainTriangle(builder, triangle, heights);
-  for (let edgeIndex = 0; edgeIndex < 3; edgeIndex += 1) {
-    const start = triangle[edgeIndex];
-    const end = triangle[(edgeIndex + 1) % 3];
-    if (!start || !end) continue;
-    for (const segment of boundarySegments) {
-      const overlap = getCollinearSegmentOverlap(start, end, segment);
-      if (!overlap) continue;
-      builder.addWall(
-        overlap[0],
-        overlap[1],
-        barycentricHeight(overlap[0], triangle, heights),
-        barycentricHeight(overlap[1], triangle, heights),
-        bottomElevation,
-        segment,
-      );
-    }
   }
 }
 
@@ -1348,8 +1036,6 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
       clipPolygons as MultiPolygon,
     ) as Position[][][];
     if (tileClipPolygons.length === 0) continue;
-    const clipTriangleIndex = createClipTriangleIndex(tileClipPolygons);
-    const clipTriangleScratch: ClipTriangle[] = [];
     const divisions = Math.max(
       1,
       Math.ceil(tile.size * 1_000 * groundScale / options.resolutionMeters),
@@ -1427,8 +1113,6 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
             boundarySegments,
             clipIndex,
             pointScratch,
-            clipTriangleIndex,
-            clipTriangleScratch,
             bottomElevation,
           );
           addTriangleWithClipBoundary(
@@ -1438,8 +1122,6 @@ async function createTerrainMesh(options: TerrainExportOptions): Promise<ObjBuil
             boundarySegments,
             clipIndex,
             pointScratch,
-            clipTriangleIndex,
-            clipTriangleScratch,
             bottomElevation,
           );
         }

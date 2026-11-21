@@ -262,8 +262,11 @@ describe("terrain export", () => {
         geometry: {
           type: "Polygon",
           coordinates: [
-            fromLocalRing([[20, 20], [40, 20], [30, 40], [20, 20]], center),
-            fromLocalRing([[27, 27], [27, 33], [33, 33], [33, 27], [27, 27]], center),
+            fromLocalRing([
+              [20, 20], [40, 20], [38, 27], [34, 28],
+              [35, 33], [30, 40], [20, 35], [20, 20],
+            ], center),
+            fromLocalRing([[26, 26], [26, 28], [28, 28], [28, 26], [26, 26]], center),
           ],
         },
       }],
@@ -335,10 +338,24 @@ describe("terrain export", () => {
 
       const vertexCount = obj.split("\n").filter((line) => line.startsWith("v ")).length;
       const faceCount = obj.split("\n").filter((line) => line.startsWith("f ")).length;
+      const vertices = obj.split("\n")
+        .filter((line) => line.startsWith("v "))
+        .map((line) => line.slice(2).split(" ").map(Number) as [number, number, number]);
+      const bottomY = Math.min(...vertices.map(([, y]) => y));
+      const skirtBottomVertices = new Set<number>();
+      const bottomFaceVertices = new Set<number>();
       const edgeUses = new Map<string, number>();
       for (const line of obj.split("\n")) {
         if (!line.startsWith("f ")) continue;
         const faceVertices = line.slice(2).split(" ").map(Number);
+        const bottomFaceIndices = faceVertices
+          .filter((index) => Math.abs((vertices[index - 1]?.[1] ?? Infinity) - bottomY) < 1e-7)
+          .map((index) => index - 1);
+        if (bottomFaceIndices.length === 2) {
+          for (const index of bottomFaceIndices) skirtBottomVertices.add(index);
+        } else if (bottomFaceIndices.length === 3) {
+          for (const index of bottomFaceIndices) bottomFaceVertices.add(index);
+        }
         for (let index = 0; index < faceVertices.length; index += 1) {
           const first = faceVertices[index];
           const second = faceVertices[(index + 1) % faceVertices.length];
@@ -352,6 +369,8 @@ describe("terrain export", () => {
       expect(totalTriangleCount).toBe(faceCount);
       expect(edgeUses.size).toBeGreaterThan(0);
       expect([...edgeUses.values()].every((count) => count === 2)).toBe(true);
+      expect(skirtBottomVertices.size).toBeGreaterThan(0);
+      expect([...skirtBottomVertices].every((index) => bottomFaceVertices.has(index))).toBe(true);
       const stateZs = prepared.californiaPolygons.flat(2).map(([, z]) => z);
       const horizontalScale = 40_000 /
         ((Math.max(...stateZs) - Math.min(...stateZs)) * 1_000);
